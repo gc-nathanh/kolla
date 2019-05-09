@@ -82,6 +82,7 @@ SKIPPED_IMAGES = {
         "almanach-base",
         "bifrost-base",
         "blazar-base",
+        "ceph-nfs",
         "cyborg-base",
         "dragonflow-base",
         "freezer-base",
@@ -97,6 +98,7 @@ SKIPPED_IMAGES = {
         "zun-base",
     ],
     'centos+source': [
+        "ceph-nfs",
         "ovsdpdk",
         "tripleoclient",
         # TODO(jeffrey4l): remove tripleo-ui when following bug is fixed
@@ -189,6 +191,7 @@ SKIPPED_IMAGES = {
         "almanach-base",
         "bifrost-base",
         "blazar-base",
+        "ceph-nfs",
         "crane",
         "cyborg-base",
         "dragonflow-base",
@@ -206,6 +209,7 @@ SKIPPED_IMAGES = {
     ],
     'oraclelinux+source': [
         "bifrost-base",
+        "ceph-nfs",
         "ovsdpdk",
         "tripleoclient",
         # TODO(jeffrey4l): remove tripleo-ui when following bug is fixed

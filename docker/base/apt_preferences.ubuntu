@@ -1,4 +1,4 @@
-# We want Ceph/Luminous
+# We want Ceph/Mimic
 Package: ceph* *cephfs* librbd* *rados* python*-rbd librgw* python*-rados python*-ceph* python*-rgw
 Pin: version 13.*
 Pin-Priority: -1

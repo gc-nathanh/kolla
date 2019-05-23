@@ -23,7 +23,8 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
         'rubygem-fluent-plugin-grok-parser',
         'rubygem-fluent-plugin-kubernetes_metadata_filter',
         'rubygem-fluent-plugin-rewrite-tag-filter',
-        'rubygem-fluent-plugin-secure-forward'
+        'rubygem-fluent-plugin-secure-forward',
+        'rubygem-fluent-plugin-rename-key',
     ] %}
 
 {% elif base_distro in ['debian', 'ubuntu'] %}
@@ -69,6 +70,7 @@ RUN chmod 755 /usr/local/bin/kolla_extend_start
         'fluent-plugin-parser',
         'fluent-plugin-rewrite-tag-filter:2.0.0',
         'fluent-plugin-secure-forward',
+        'fluent-plugin-rename-key',
     ] %}
 {% endif %}
 

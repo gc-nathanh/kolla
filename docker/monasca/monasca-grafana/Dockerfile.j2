@@ -55,7 +55,8 @@ RUN gem install rake fpm \
     && rm -f /tmp/monasca-grafana.tgz \
     && cd ${monasca_grafana_build_path} \
     && go run build.go setup \
-    && npm install \
+    && npm install -g yarn \
+    && yarn \
     && go run build.go build package \
     && mv ${monasca_grafana_build_path}/dist /grafana_pkgs \
     && rm -rf /grafana

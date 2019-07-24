@@ -8,10 +8,13 @@ ENV prometheus_openstack_exporter_version=0.1.0
 {% endblock %}
 
 {% block prometheus_openstack_exporter_install %}
-RUN git clone https://github.com/stackhpc/openstack-exporter.git /tmp/openstack-exporter \
-    && cd /tmp/openstack-exporter \
+RUN curl -sSL -o /tmp/prometheus_openstack_exporter.tar.gz https://github.com/stackhpc/openstack-exporter/archive/master.tar.gz \
+    && tar xvf /tmp/prometheus_openstack_exporter.tar.gz -C /tmp/ \
+    && cd /tmp/openstack-exporter-master \
     && make common-build \
-    && cp openstack-exporter /opt/openstack-exporter
+    && cp openstack-exporter /opt/openstack-exporter \
+    && cd /opt/ \
+    && rm -f /tmp/prometheus_openstack_exporter.tar.gz /tmp/openstack-exporter-master
 {% endblock %}
 
 {% block prometheus_openstack_exporter_footer %}{% endblock %}

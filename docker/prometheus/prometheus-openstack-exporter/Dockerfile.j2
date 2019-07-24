@@ -3,18 +3,34 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 
 {% block prometheus_openstack_exporter_header %}{% endblock %}
 
+{% import "macros.j2" as macros with context %}
+
 {% block prometheus_openstack_exporter_repository_version %}
 ENV prometheus_openstack_exporter_version=0.1.0
 {% endblock %}
 
+{% if base_distro in ['centos', 'oraclelinux', 'rhel'] %}
+    {% set prometheus_openstack_exporter_build_packages = [
+        'golang',
+        'make',
+     ] %}
+{% elif base_distro in ['debian', 'ubuntu'] %}
+    {% set prometheus_openstack_exporter_build_packages = [
+        'golang',
+        'make',
+     ] %}
+{% endif %}
+
+{{ macros.install_packages(prometheus_openstack_exporter_build_packages | customizable("packages")) }}
+
 {% block prometheus_openstack_exporter_install %}
 RUN curl -sSL -o /tmp/prometheus_openstack_exporter.tar.gz https://github.com/stackhpc/openstack-exporter/archive/master.tar.gz \
-    && tar xvf /tmp/prometheus_openstack_exporter.tar.gz -C /tmp/ \
-    && cd /tmp/openstack-exporter-master \
+    && mkdir -p /tmp/openstack-exporter \
+    && tar xvf /tmp/prometheus_openstack_exporter.tar.gz -C /tmp/openstack-exporter --strip-components 1 \
+    && cd /tmp/openstack-exporter \
     && make common-build \
-    && cp openstack-exporter /opt/openstack-exporter \
-    && cd /opt/ \
-    && rm -f /tmp/prometheus_openstack_exporter.tar.gz /tmp/openstack-exporter-master
+    && mkdir -p /opt/openstack-exporter \
+    && cp openstack-exporter /opt/openstack-exporter/
 {% endblock %}
 
 {% block prometheus_openstack_exporter_footer %}{% endblock %}

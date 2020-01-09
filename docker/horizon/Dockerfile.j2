@@ -27,10 +27,12 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
                 'openstack-manila-ui',
                 'openstack-mistral-ui',
                 'openstack-murano-ui',
+                'openstack-monasca-ui',
                 'openstack-octavia-ui',
                 'openstack-sahara-ui',
                 'openstack-trove-ui',
-                'openstack-vitrage-ui'
+                'openstack-vitrage-ui',
+                'python-monascaclient',
         ] %}
         {% if distro_python_version.startswith('3') %}
         {% set horizon_packages = horizon_packages + ['python3-mod_wsgi'] %}

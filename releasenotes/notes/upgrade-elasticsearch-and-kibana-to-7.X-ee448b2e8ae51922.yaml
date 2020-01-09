@@ -1,0 +1,4 @@
+---
+upgrade:
+  - |
+    Upgrade ELK to 7.X. TODO Upgrade notes

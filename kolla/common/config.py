@@ -305,9 +305,9 @@ SOURCES = {
         'location': ('$tarballs_base/barbican/'
                      'barbican-${openstack_branch}.tar.gz')},
     'bifrost-base': {
-        'type': 'url',
-        'location': ('$tarballs_base/bifrost/'
-                     'bifrost-${openstack_branch}.tar.gz')},
+        'type': 'git',
+        'location': ('https://github.com/stackhpc/bifrost'),
+        'reference': 'centos8-wip'},
     'blazar-base': {
         'type': 'url',
         'location': ('$tarballs_base/blazar/'

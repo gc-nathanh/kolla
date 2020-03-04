@@ -1,13 +1,5 @@
 ---
 - project:
-    check:
-      jobs:
-        - kolla-build-debian-source
-        - kolla-build-debian-binary
-        - kolla-ansible-debian-source
-    check-arm64:
-      jobs:
-        - kolla-build-debian-source-aarch64
     periodic:
       jobs:
         - kolla-publish-debian-source

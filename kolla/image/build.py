@@ -353,6 +353,9 @@ class PushTask(DockerTask):
                 image.status = STATUS_ERROR
                 self.logger.error(stream['errorDetail']['message'])
 
+        # Reset any previous errors.
+        image.status = STATUS_BUILT
+
 
 class BuildTask(DockerTask):
     """Task that builds out an image."""
@@ -665,6 +668,7 @@ class KollaWorker(object):
         else:
             self.namespace = conf.namespace
         self.base = conf.base
+        self.use_dumb_init = conf.use_dumb_init
         self.base_tag = conf.base_tag
         self.install_type = conf.install_type
         self.tag = conf.tag
@@ -868,6 +872,7 @@ class KollaWorker(object):
                       'base_image': self.conf.base_image,
                       'base_distro_tag': self.base_tag,
                       'base_arch': self.base_arch,
+                      'use_dumb_init': self.use_dumb_init,
                       'supported_distro_release': supported_distro_release,
                       'install_metatype': self.install_metatype,
                       'image_prefix': self.image_prefix,

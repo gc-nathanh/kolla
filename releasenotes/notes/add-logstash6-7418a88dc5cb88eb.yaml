@@ -1,0 +1,6 @@
+---
+features:
+  - |
+    Adds new ``logstash6`` image for CentOS 7 and 8 only. This image is used
+    to provide compatibility between versions in CentOS 7 and 8 images. This
+    image will only be available in the Train release.

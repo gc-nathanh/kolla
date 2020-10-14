@@ -1,14 +1,19 @@
 FROM {{ namespace }}/{{ image_prefix }}glance-base:{{ tag }}
+{% block labels %}
 LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
 
 {% block glance_api_header %}{% endblock %}
 
 {% import "macros.j2" as macros with context %}
 
-{% if base_distro in ['centos', 'oraclelinux', 'rhel'] %}
+{% if base_package_type == 'rpm' %}
     {% set glance_api_packages = ['qemu-img'] %}
-{% elif base_distro in ['debian', 'ubuntu'] %}
-    {% set glance_api_packages = ['qemu-utils'] %}
+{% elif base_package_type == 'deb' %}
+    {% set glance_api_packages = [
+        'nfs-common',
+        'qemu-utils'
+    ] %}
 {% endif %}
 
 {{ macros.install_packages(glance_api_packages | customizable("packages")) }}

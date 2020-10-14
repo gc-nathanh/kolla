@@ -12,14 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import print_function
-
 import contextlib
 import datetime
 import errno
 import json
 import logging
 import os
+import queue
 import re
 import requests
 import shutil
@@ -29,12 +28,13 @@ import tempfile
 import threading
 import time
 
+from distutils.version import StrictVersion
 import docker
 import git
 import jinja2
 from oslo_config import cfg
 from requests import exceptions as requests_exc
-import six
+
 
 # NOTE(SamYaple): Update the search path to prefer PROJECT_ROOT as the source
 #                 of packages to import if we are using local tools instead of
@@ -44,36 +44,16 @@ PROJECT_ROOT = os.path.abspath(os.path.join(
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from kolla.common import config as common_config
-from kolla.common import task
-from kolla import exception
-from kolla.template import filters as jinja_filters
-from kolla.template import methods as jinja_methods
-from kolla import version
+from kolla.common import config as common_config  # noqa
+from kolla.common import task  # noqa
+from kolla.common import utils  # noqa
+from kolla import exception  # noqa
+from kolla.template import filters as jinja_filters  # noqa
+from kolla.template import methods as jinja_methods  # noqa
+from kolla import version  # noqa
 
 
-def make_a_logger(conf=None, image_name=None):
-    if image_name:
-        log = logging.getLogger(".".join([__name__, image_name]))
-    else:
-        log = logging.getLogger(__name__)
-    if not log.handlers:
-        if conf is None or not conf.logs_dir or not image_name:
-            handler = logging.StreamHandler(sys.stderr)
-            log.propagate = False
-        else:
-            filename = os.path.join(conf.logs_dir, "%s.log" % image_name)
-            handler = logging.FileHandler(filename, delay=True)
-        handler.setFormatter(logging.Formatter(logging.BASIC_FORMAT))
-        log.addHandler(handler)
-    if conf is not None and conf.debug:
-        log.setLevel(logging.DEBUG)
-    else:
-        log.setLevel(logging.INFO)
-    return log
-
-
-LOG = make_a_logger()
+LOG = utils.make_a_logger()
 
 # Image status constants.
 #
@@ -88,10 +68,154 @@ STATUS_UNMATCHED = 'unmatched'
 STATUS_MATCHED = 'matched'
 STATUS_UNPROCESSED = 'unprocessed'
 STATUS_SKIPPED = 'skipped'
+STATUS_UNBUILDABLE = 'unbuildable'
 
 # All error status constants.
 STATUS_ERRORS = (STATUS_CONNECTION_ERROR, STATUS_PUSH_ERROR,
                  STATUS_ERROR, STATUS_PARENT_ERROR)
+
+# The dictionary of unbuildable images supports keys in the format:
+# '<distro>+<installation_type>+<arch>' where each component is optional
+# and can be omitted along with the + separator which means that component
+# is irrelevant. Otherwise all must match for skip to happen.
+UNBUILDABLE_IMAGES = {
+    'aarch64': {
+        "monasca-grafana",   # no phantomJS on aarch64
+        "opendaylight",      # no binary package
+        "prometheus-mtail",  # no aarch64 binary
+        "skydive-base",      # no aarch64 binary
+    },
+
+    'ppc64le': {
+        "elasticsearch",     # no binary package
+        "grafana",           # no binary package
+        "monasca-grafana",   # no phantomJS
+        "opendaylight",      # no binary package
+        "prometheus-base",   # no ppc64le binaries
+        "skydive-base",      # no ppc64le binaries
+        "telegraf",          # no binary package
+        "xtrabackup",        # no binary package
+    },
+
+    'source': {
+        "tripleoclient",
+    },
+
+    'binary': {
+        "bifrost-base",
+        "blazar-base",
+        "cyborg-base",
+        "freezer-base",
+        "karbor-base",
+        "kuryr-base",
+        "masakari-base",
+        "monasca-base",
+        "monasca-thresh",
+        "nova-mksproxy",
+        "openvswitch-netcontrold",
+        "qinling-base",
+        "searchlight-base",
+        "solum-base",
+        "vmtp",
+        "zun-base",
+    },
+
+    'source+aarch64': {
+        "monasca-base",  # pypi 'confluent-kafka' requires newer libfdkafka-dev
+                         # than distributions have
+        "tempest",       # same reason as 'monasca-base'
+    },
+
+    'source+ppc64le': {
+        "monasca-base",  # pypi 'confluent-kafka' requires newer libfdkafka-dev
+                         # than distributions have
+        "tempest",       # same reason as 'monasca-base'
+    },
+
+    'centos': {
+        "hacluster-pcs",         # Missing crmsh package
+        "mongodb",               # Missing mongodb and mongodb-server packages
+        "nova-spicehtml5proxy",  # Missing spicehtml5 package
+        "opendaylight",          # Missing opendaylight repo
+        "ovsdpdk",               # Not supported on CentOS
+        "sensu-base",            # Dropped by CentOS
+        "tgtd",                  # Not supported on CentOS 8
+    },
+
+    'debian': {
+        "bifrost-base",  # tries to install 'mysql-server' which is not in
+                         # Debian 'buster'
+        "monasca-grafana",  # FIXME(hrw): some ssl issues to fix
+        "mongodb",
+        "opendaylight",  # no binary package
+        "ovsdpdk",
+        "qdrouterd",
+        "sensu-base",
+    },
+
+    'ubuntu': {
+        "qdrouterd",  # There is no qdrouterd package for ubuntu bionic
+    },
+
+    'ubuntu+aarch64': {
+        "kibana",        # no binary package
+        "sensu-base",    # no binary package
+    },
+
+    'ubuntu+ppc64le': {
+        "sensu-base",    # no binary package
+    },
+
+    'centos+aarch64': {
+        "elasticsearch",  # no binary package
+        "fluentd",        # no binary package
+        "hacluster-pcs",  # no binary package
+        "influxdb",       # no binary package
+        "kibana",         # no binary package
+        "mongodb",        # no binary package
+        "telegraf",       # no binary package
+    },
+
+    'centos+ppc64le': {
+        "hacluster-pcs",  # no binary package
+        "influxdb",       # no binary package
+        "kibana",         # no binary package
+        "mongodb",        # no binary package
+    },
+
+    'debian+binary': {
+        "cloudkitty-base",
+        "ec2-api",
+        "heat-all",
+        "ironic-neutron-agent",
+        "neutron-server-opendaylight",
+        "nova-serialproxy",
+        "novajoin-base",
+        "senlin-conductor",  # no binary package
+        "senlin-health-manager",  # no binary package
+        "tacker-base",
+        "tripleoclient",
+        "trove-base",
+        "neutron-mlnx-agent",
+    },
+
+    'ubuntu+binary': {
+        "cloudkitty-base",
+        "congress-base",
+        "ec2-api",
+        "heat-all",
+        "ironic-neutron-agent",
+        "novajoin-base",
+        "rally",
+        "senlin-conductor",  # no binary package
+        "senlin-health-manager",  # no binary package
+        "tacker-base",
+        "tripleoclient",
+        "vitrage-base",
+        "zaqar",
+        "neutron-mlnx-agent",
+    },
+}
 
 
 class ArchivingError(Exception):
@@ -148,7 +272,7 @@ class Image(object):
         self.source = source
         self.parent_name = parent_name
         if logger is None:
-            logger = make_a_logger(image_name=name)
+            logger = utils.make_a_logger(image_name=name)
         self.logger = logger
         self.children = []
         self.plugins = []
@@ -189,12 +313,16 @@ class PushIntoQueueTask(task.Task):
 
     @property
     def name(self):
-        return 'PushIntoQueueTask(%s=>%s)' % (self.push_task.name,
-                                              self.push_queue)
+        return 'PushIntoQueueTask(%s)' % (self.push_task.name)
 
     def run(self):
         self.push_queue.put(self.push_task)
         self.success = True
+
+
+class PushError(Exception):
+    """Raised when there is a problem with pushing image to repository."""
+    pass
 
 
 class PushTask(DockerTask):
@@ -220,27 +348,37 @@ class PushTask(DockerTask):
                                   ' have the correct privileges to run Docker'
                                   ' (root)')
             image.status = STATUS_CONNECTION_ERROR
+        except PushError as exception:
+            self.logger.error(exception)
+            image.status = STATUS_PUSH_ERROR
         except Exception:
             self.logger.exception('Unknown error when pushing')
             image.status = STATUS_PUSH_ERROR
         finally:
-            if (image.status not in STATUS_ERRORS
-                    and image.status != STATUS_UNPROCESSED):
+            if (image.status not in STATUS_ERRORS and
+                    image.status != STATUS_UNPROCESSED):
                 self.logger.info('Pushed successfully')
                 self.success = True
             else:
                 self.success = False
 
     def push_image(self, image):
-        for response in self.dc.push(image.canonical_name,
-                                     stream=True,
-                                     insecure_registry=True):
-            stream = json.loads(response)
-            if 'stream' in stream:
-                self.logger.info(stream['stream'])
-            elif 'errorDetail' in stream:
-                image.status = STATUS_ERROR
-                self.logger.error(stream['errorDetail']['message'])
+        kwargs = dict(stream=True, decode=True)
+
+        # Since docker 3.0.0, the argument of 'insecure_registry' is removed.
+        # To be compatible, set 'insecure_registry=True' for old releases.
+        dc_running_ver = StrictVersion(docker.version)
+        if dc_running_ver < StrictVersion('3.0.0'):
+            kwargs['insecure_registry'] = True
+
+        for response in self.dc.push(image.canonical_name, **kwargs):
+            if 'stream' in response:
+                self.logger.info(response['stream'])
+            elif 'errorDetail' in response:
+                raise PushError(response['errorDetail']['message'])
+
+        # Reset any previous errors.
+        image.status = STATUS_BUILT
 
 
 class BuildTask(DockerTask):
@@ -251,7 +389,6 @@ class BuildTask(DockerTask):
         self.conf = conf
         self.image = image
         self.push_queue = push_queue
-        self.nocache = not conf.cache
         self.forcerm = not conf.keep
         self.logger = image.logger
 
@@ -277,7 +414,8 @@ class BuildTask(DockerTask):
             ])
         if self.image.children and self.success:
             for image in self.image.children:
-                if image.status == STATUS_UNMATCHED:
+                if image.status in (STATUS_UNMATCHED, STATUS_SKIPPED,
+                                    STATUS_UNBUILDABLE):
                     continue
                 followups.append(BuildTask(self.conf, image, self.push_queue))
         return followups
@@ -405,7 +543,7 @@ class BuildTask(DockerTask):
 
         self.logger.debug('Processing')
 
-        if image.status == STATUS_SKIPPED:
+        if image.status in [STATUS_SKIPPED, STATUS_UNBUILDABLE]:
             self.logger.info('Skipping %s' % image.name)
             return
 
@@ -420,7 +558,8 @@ class BuildTask(DockerTask):
             return
 
         image.status = STATUS_BUILDING
-        self.logger.info('Building')
+        image.start = datetime.datetime.now()
+        self.logger.info('Building started at %s' % image.start)
 
         if image.source and 'source' in image.source:
             self.process_source(image, image.source)
@@ -454,14 +593,15 @@ class BuildTask(DockerTask):
 
         buildargs = self.update_buildargs()
         try:
-            for response in self.dc.build(path=image.path,
-                                          tag=image.canonical_name,
-                                          nocache=not self.conf.cache,
-                                          rm=True,
-                                          pull=pull,
-                                          forcerm=self.forcerm,
-                                          buildargs=buildargs):
-                stream = json.loads(response.decode('utf-8'))
+            for stream in self.dc.build(path=image.path,
+                                        tag=image.canonical_name,
+                                        nocache=not self.conf.cache,
+                                        rm=True,
+                                        decode=True,
+                                        network_mode=self.conf.network_mode,
+                                        pull=pull,
+                                        forcerm=self.forcerm,
+                                        buildargs=buildargs):
                 if 'stream' in stream:
                     for line in stream['stream'].split('\n'):
                         if line:
@@ -473,6 +613,9 @@ class BuildTask(DockerTask):
                         if line:
                             self.logger.error('%s', line)
                     return
+
+            if image.status != STATUS_ERROR and self.conf.squash:
+                self.squash()
         except docker.errors.DockerException:
             image.status = STATUS_ERROR
             self.logger.exception('Unknown docker error when building')
@@ -481,7 +624,22 @@ class BuildTask(DockerTask):
             self.logger.exception('Unknown error when building')
         else:
             image.status = STATUS_BUILT
-            self.logger.info('Built')
+            now = datetime.datetime.now()
+            self.logger.info('Built at %s (took %s)' %
+                             (now, now - image.start))
+
+    def squash(self):
+        image_tag = self.image.canonical_name
+        image_id = self.dc.inspect_image(image_tag)['Id']
+
+        parent_history = self.dc.history(self.image.parent_name)
+        parent_last_layer = parent_history[0]['Id']
+        self.logger.info('Parent lastest layer is: %s' % parent_last_layer)
+
+        utils.squash(image_id, image_tag, from_layer=parent_last_layer,
+                     cleanup=self.conf.squash_cleanup,
+                     tmp_dir=self.conf.squash_tmp_dir)
+        self.logger.info('Image is squashed successfully')
 
 
 class WorkerThread(threading.Thread):
@@ -504,7 +662,7 @@ class WorkerThread(threading.Thread):
                 self.queue.put(task)
                 break
             try:
-                for attempt in six.moves.range(self.conf.retries + 1):
+                for attempt in range(self.conf.retries + 1):
                     if self.should_stop:
                         break
                     LOG.info("Attempt number: %s to run task: %s ",
@@ -538,19 +696,57 @@ class KollaWorker(object):
         else:
             self.namespace = conf.namespace
         self.base = conf.base
+        self.use_dumb_init = conf.use_dumb_init
         self.base_tag = conf.base_tag
         self.install_type = conf.install_type
         self.tag = conf.tag
         self.base_arch = conf.base_arch
+        self.debian_arch = self.base_arch
+        if self.base_arch == 'aarch64':
+            self.debian_arch = 'arm64'
+        elif self.base_arch == 'x86_64':
+            self.debian_arch = 'amd64'
+        elif self.base_arch == 'ppc64le':
+            self.debian_arch = 'ppc64el'
         self.images = list()
+        self.openstack_release = conf.openstack_release
+        self.docker_healthchecks = conf.docker_healthchecks
         rpm_setup_config = ([repo_file for repo_file in
                              conf.rpm_setup_config if repo_file is not None])
         self.rpm_setup = self.build_rpm_setup(rpm_setup_config)
 
-        rh_base = ['centos', 'oraclelinux', 'rhel']
+        rh_base = ['centos', 'rhel']
         rh_type = ['source', 'binary', 'rdo', 'rhos']
         deb_base = ['ubuntu', 'debian']
         deb_type = ['source', 'binary']
+
+        if self.base in rh_base:
+            self.conf.distro_python_version = "3.6"
+        elif self.base in ['debian']:
+            self.conf.distro_python_version = "3.7"
+        elif self.base in ['ubuntu']:
+            self.conf.distro_python_version = "3.6"
+        else:
+            # Assume worst
+            self.conf.distro_python_version = "3.6"
+
+        if self.conf.distro_package_manager is not None:
+            package_manager = self.conf.distro_package_manager
+        elif self.base in rh_base:
+            package_manager = 'dnf'
+        elif self.base in deb_base:
+            package_manager = 'apt'
+        self.distro_package_manager = package_manager
+
+        self.clean_package_cache = self.conf.clean_package_cache
+
+        # Determine base packaging type for use in Dockerfiles.
+        if self.conf.base_package_type:
+            self.base_package_type = self.conf.base_package_type
+        elif self.base in rh_base:
+            self.base_package_type = 'rpm'
+        elif self.base in deb_base:
+            self.base_package_type = 'deb'
 
         if not ((self.base in rh_base and self.install_type in rh_type) or
                 (self.base in deb_base and self.install_type in deb_type)):
@@ -573,6 +769,12 @@ class KollaWorker(object):
                 'Unknown install type'
             )
 
+        if (self.install_type == 'binary' and self.base == 'debian' and
+                self.base_arch != 'x86_64'):
+            LOG.info("Debian/binary target is available only for x86-64 "
+                     "due to lack of packages for other architectures.")
+            sys.exit(1)
+
         self.image_prefix = self.base + '-' + self.install_type + '-'
 
         self.regex = conf.regex
@@ -580,10 +782,22 @@ class KollaWorker(object):
         self.image_statuses_good = dict()
         self.image_statuses_unmatched = dict()
         self.image_statuses_skipped = dict()
+        self.image_statuses_unbuildable = dict()
         self.maintainer = conf.maintainer
+        self.distro_python_version = conf.distro_python_version
 
         docker_kwargs = docker.utils.kwargs_from_env()
-        self.dc = docker.APIClient(version='auto', **docker_kwargs)
+        try:
+            self.dc = docker.APIClient(version='auto', **docker_kwargs)
+        except docker.errors.DockerException as e:
+            self.dc = None
+            if not (conf.template_only or
+                    conf.save_dependency or
+                    conf.list_images or
+                    conf.list_dependencies):
+                LOG.error("Unable to connect to Docker, exiting")
+                LOG.info("Exception caught: {0}".format(e))
+                sys.exit(1)
 
     def _get_images_dir(self):
         possible_paths = (
@@ -598,7 +812,7 @@ class KollaWorker(object):
 
         for path in possible_paths:
             image_path = os.path.join(path, 'docker')
-            # NOTE(SamYaple): We explicty check for the base folder to ensure
+            # NOTE(SamYaple): We explicitly check for the base folder to ensure
             #                 this is the correct path
             # TODO(SamYaple): Improve this to make this safer
             if os.path.exists(os.path.join(image_path, 'base')):
@@ -619,8 +833,8 @@ class KollaWorker(object):
 
         for config in rpm_setup_config:
             if config.endswith('.rpm'):
-                # RPM files can be installed with yum from file path or url
-                cmd = "RUN yum -y install {}".format(config)
+                # RPM files can be installed with dnf from file path or url
+                cmd = "RUN dnf -y install {}".format(config)
             elif config.endswith('.repo'):
                 if config.startswith('http'):
                     # Curl http://url/etc.repo to /etc/yum.repos.d/etc.repo
@@ -706,10 +920,11 @@ class KollaWorker(object):
 
         return {
             'debian_package_install': jinja_methods.debian_package_install,
+            'handle_repos': jinja_methods.handle_repos,
         }
 
     def get_users(self):
-        all_sections = (set(six.iterkeys(self.conf._groups)) |
+        all_sections = (set(self.conf._groups.keys()) |
                         set(self.conf.list_all_sections()))
         ret = dict()
         for section in all_sections:
@@ -736,18 +951,26 @@ class KollaWorker(object):
                       'base_image': self.conf.base_image,
                       'base_distro_tag': self.base_tag,
                       'base_arch': self.base_arch,
+                      'use_dumb_init': self.use_dumb_init,
+                      'base_package_type': self.base_package_type,
+                      'debian_arch': self.debian_arch,
+                      'docker_healthchecks': self.docker_healthchecks,
                       'supported_distro_release': supported_distro_release,
                       'install_metatype': self.install_metatype,
                       'image_prefix': self.image_prefix,
                       'install_type': self.install_type,
                       'namespace': self.namespace,
+                      'openstack_release': self.openstack_release,
                       'tag': self.tag,
                       'maintainer': self.maintainer,
                       'kolla_version': kolla_version,
                       'image_name': image_name,
                       'users': self.get_users(),
+                      'distro_python_version': self.distro_python_version,
+                      'distro_package_manager': self.distro_package_manager,
                       'rpm_setup': self.rpm_setup,
-                      'build_date': build_date}
+                      'build_date': build_date,
+                      'clean_package_cache': self.clean_package_cache}
             env = jinja2.Environment(  # nosec: not used to render HTML
                 loader=jinja2.FileSystemLoader(self.working_dir))
             env.filters.update(self._get_filters())
@@ -759,14 +982,14 @@ class KollaWorker(object):
             template = env.get_template(tpl_path)
             if self.conf.template_override:
                 tpl_dict = self._merge_overrides(self.conf.template_override)
-                template_name = os.path.basename(tpl_dict.keys()[0])
+                template_name = os.path.basename(list(tpl_dict.keys())[0])
                 values['parent_template'] = template
                 env = jinja2.Environment(  # nosec: not used to render HTML
                     loader=jinja2.DictLoader(tpl_dict))
                 env.filters.update(self._get_filters())
                 env.globals.update(self._get_methods())
                 template = env.get_template(template_name)
-            content = template.render(values)
+            content = template.render(values, env=os.environ)
             content_path = os.path.join(path, 'Dockerfile')
             with open(content_path, 'w') as f:
                 LOG.debug("Rendered %s into:", tpl_path)
@@ -822,30 +1045,81 @@ class KollaWorker(object):
                 else:
                     filter_ += self.conf.profiles[profile]
 
+        # mark unbuildable images and their children
+        base = self.base
+
+        tag_element = r'(%s|%s|%s)' % (base,
+                                       self.install_type,
+                                       self.base_arch)
+        tag_re = re.compile(r'^%s(\+%s)*$' % (tag_element, tag_element))
+        unbuildable_images = set()
+
+        if not self.conf.enable_unbuildable:
+            for set_tag in UNBUILDABLE_IMAGES:
+                if tag_re.match(set_tag):
+                    unbuildable_images.update(UNBUILDABLE_IMAGES[set_tag])
+
+        if unbuildable_images:
+            for image in self.images:
+                if image.name in unbuildable_images:
+                    image.status = STATUS_UNBUILDABLE
+                else:
+                    # let's check ancestors
+                    # if any of them is unbuildable then we mark it
+                    # and then mark image
+                    build_image = True
+                    ancestor_image = image
+                    while (ancestor_image.parent is not None):
+                        ancestor_image = ancestor_image.parent
+                        if ancestor_image.name in unbuildable_images or \
+                           ancestor_image.status == STATUS_UNBUILDABLE:
+                            build_image = False
+                            ancestor_image.status = STATUS_UNBUILDABLE
+                            break
+                    if not build_image:
+                        image.status = STATUS_UNBUILDABLE
+
+        # When we want to build a subset of images then filter_ part kicks in.
+        # Otherwise we just mark everything buildable as matched for build.
+
+        # First, determine which buildable images match.
         if filter_:
             patterns = re.compile(r"|".join(filter_).join('()'))
             for image in self.images:
-                if image.status in (STATUS_MATCHED, STATUS_SKIPPED):
+                # as we now list not buildable/skipped images we need to
+                # process them otherwise list will contain also not requested
+                # entries
+                if image.status in (STATUS_MATCHED, STATUS_UNBUILDABLE):
                     continue
                 if re.search(patterns, image.name):
                     image.status = STATUS_MATCHED
-                    while (image.parent is not None and
-                           image.parent.status not in (STATUS_MATCHED,
-                                                       STATUS_SKIPPED)):
-                        image = image.parent
-                        if self.conf.skip_parents:
-                            image.status = STATUS_SKIPPED
-                        elif (self.conf.skip_existing and
-                              image.in_docker_cache()):
-                            image.status = STATUS_SKIPPED
-                        else:
-                            image.status = STATUS_MATCHED
-                        LOG.debug('Image %s matched regex', image.name)
+
+                    ancestor_image = image
+                    while (ancestor_image.parent is not None and
+                           ancestor_image.parent.status != STATUS_MATCHED):
+                        ancestor_image = ancestor_image.parent
+                        # Parents of a buildable image must also be buildable.
+                        ancestor_image.status = STATUS_MATCHED
+                    LOG.debug('Image %s matched regex', image.name)
                 else:
                     image.status = STATUS_UNMATCHED
         else:
             for image in self.images:
-                image.status = STATUS_MATCHED
+                if image.status != STATUS_UNBUILDABLE:
+                    image.status = STATUS_MATCHED
+
+        # Next, mark any skipped images.
+        for image in self.images:
+            if image.status != STATUS_MATCHED:
+                continue
+            # Skip image if --skip-existing was given and image exists.
+            if (self.conf.skip_existing and image.in_docker_cache()):
+                LOG.debug('Skipping existing image %s', image.name)
+                image.status = STATUS_SKIPPED
+            # Skip image if --skip-parents was given and image has children.
+            elif self.conf.skip_parents and image.children:
+                LOG.debug('Skipping parent image %s', image.name)
+                image.status = STATUS_SKIPPED
 
     def summary(self):
         """Walk the dictionary of images statuses and print results."""
@@ -861,6 +1135,7 @@ class KollaWorker(object):
             'failed': [],
             'not_matched': [],
             'skipped': [],
+            'unbuildable': [],
         }
 
         if self.image_statuses_good:
@@ -883,6 +1158,16 @@ class KollaWorker(object):
                     'name': name,
                     'status': status,
                 })
+                if self.conf.logs_dir and status == STATUS_ERROR:
+                    linkname = os.path.join(self.conf.logs_dir,
+                                            "000_FAILED_%s.log" % name)
+                    try:
+                        os.lstat(linkname)
+                        os.remove(linkname)
+                    except OSError:
+                        pass
+
+                    os.symlink("%s.log" % name, linkname)
 
         if self.image_statuses_unmatched:
             LOG.debug("=====================================")
@@ -895,12 +1180,22 @@ class KollaWorker(object):
                 })
 
         if self.image_statuses_skipped:
-            LOG.debug("================================")
-            LOG.debug("Images skipped due build options")
-            LOG.debug("================================")
+            LOG.info("===================================")
+            LOG.info("Images skipped due to build options")
+            LOG.info("===================================")
             for name in sorted(self.image_statuses_skipped.keys()):
-                LOG.debug(name)
+                LOG.info(name)
                 results['skipped'].append({
+                    'name': name,
+                })
+
+        if self.image_statuses_unbuildable:
+            LOG.info("=========================================")
+            LOG.info("Images not buildable due to build options")
+            LOG.info("=========================================")
+            for name in sorted(self.image_statuses_unbuildable.keys()):
+                LOG.info(name)
+                results['unbuildable'].append({
                     'name': name,
                 })
 
@@ -910,11 +1205,13 @@ class KollaWorker(object):
         if any([self.image_statuses_bad,
                 self.image_statuses_good,
                 self.image_statuses_unmatched,
-                self.image_statuses_skipped]):
+                self.image_statuses_skipped,
+                self.image_statuses_unbuildable]):
             return (self.image_statuses_bad,
                     self.image_statuses_good,
                     self.image_statuses_unmatched,
-                    self.image_statuses_skipped)
+                    self.image_statuses_skipped,
+                    self.image_statuses_unbuildable)
         for image in self.images:
             if image.status == STATUS_BUILT:
                 self.image_statuses_good[image.name] = image.status
@@ -922,12 +1219,15 @@ class KollaWorker(object):
                 self.image_statuses_unmatched[image.name] = image.status
             elif image.status == STATUS_SKIPPED:
                 self.image_statuses_skipped[image.name] = image.status
+            elif image.status == STATUS_UNBUILDABLE:
+                self.image_statuses_unbuildable[image.name] = image.status
             else:
                 self.image_statuses_bad[image.name] = image.status
         return (self.image_statuses_bad,
                 self.image_statuses_good,
                 self.image_statuses_unmatched,
-                self.image_statuses_skipped)
+                self.image_statuses_skipped,
+                self.image_statuses_unbuildable)
 
     def build_image_list(self):
         def process_source_installation(image, section):
@@ -945,7 +1245,7 @@ class KollaWorker(object):
                     installation['reference'] = self.conf[section]['reference']
             return installation
 
-        all_sections = (set(six.iterkeys(self.conf._groups)) |
+        all_sections = (set(self.conf._groups.keys()) |
                         set(self.conf.list_all_sections()))
 
         for path in self.docker_build_paths:
@@ -965,7 +1265,7 @@ class KollaWorker(object):
             del match
             image = Image(image_name, canonical_name, path,
                           parent_name=parent_name,
-                          logger=make_a_logger(self.conf, image_name),
+                          logger=utils.make_a_logger(self.conf, image_name),
                           docker_client=self.dc)
 
             if self.install_type == 'source':
@@ -1042,7 +1342,7 @@ class KollaWorker(object):
             return
 
         def list_children(images, ancestry):
-            children = six.next(iter(ancestry.values()))
+            children = next(iter(ancestry.values()))
             for image in images:
                 if image.status not in [STATUS_MATCHED]:
                     continue
@@ -1076,30 +1376,29 @@ class KollaWorker(object):
         Return a list of Queues that have been organized into a hierarchy
         based on dependencies
         """
-        self.build_image_list()
-        self.find_parents()
-        self.filter_images()
-
-        queue = six.moves.queue.Queue()
+        build_queue = queue.Queue()
 
         for image in self.images:
-            if image.status == STATUS_UNMATCHED:
+            if image.status in (STATUS_UNMATCHED, STATUS_SKIPPED,
+                                STATUS_UNBUILDABLE):
                 # Don't bother queuing up build tasks for things that
                 # were not matched in the first place... (not worth the
                 # effort to run them, if they won't be used anyway).
                 continue
-            if image.parent is None:
-                queue.put(BuildTask(self.conf, image, push_queue))
+            # Build all root nodes, where a root is defined as having no parent
+            # or having a parent that is explicitly being skipped.
+            if image.parent is None or image.parent.status == STATUS_SKIPPED:
+                build_queue.put(BuildTask(self.conf, image, push_queue))
                 LOG.info('Added image %s to queue', image.name)
 
-        return queue
+        return build_queue
 
 
 def run_build():
     """Build container images.
 
-    :return: A 3-tuple containing bad, good, and unmatched container image
-    status dicts, or None if no images were built.
+    :return: A 4-tuple containing bad, good, unmatched and skipped container
+    image status dicts, or None if no images were built.
     """
     conf = cfg.ConfigOpts()
     common_config.parse(conf, sys.argv[1:], prog='kolla-build')
@@ -1107,12 +1406,26 @@ def run_build():
     if conf.debug:
         LOG.setLevel(logging.DEBUG)
 
+    if conf.squash:
+        squash_version = utils.get_docker_squash_version()
+        LOG.info('Image squash is enabled and "docker-squash" version is %s',
+                 squash_version)
+
     kolla = KollaWorker(conf)
     kolla.setup_working_dir()
     kolla.find_dockerfiles()
     kolla.create_dockerfiles()
+    kolla.build_image_list()
+    kolla.find_parents()
+    kolla.filter_images()
 
     if conf.template_only:
+        for image in kolla.images:
+            if image.status == STATUS_MATCHED:
+                continue
+
+            shutil.rmtree(image.path)
+
         LOG.info('Dockerfiles are generated in %s', kolla.working_dir)
         return
 
@@ -1121,56 +1434,47 @@ def run_build():
     kolla.set_time()
 
     if conf.save_dependency:
-        kolla.build_image_list()
-        kolla.find_parents()
-        kolla.filter_images()
         kolla.save_dependency(conf.save_dependency)
         LOG.info('Docker images dependency are saved in %s',
                  conf.save_dependency)
         return
     if conf.list_images:
-        kolla.build_image_list()
-        kolla.find_parents()
-        kolla.filter_images()
         kolla.list_images()
         return
     if conf.list_dependencies:
-        kolla.build_image_list()
-        kolla.find_parents()
-        kolla.filter_images()
         kolla.list_dependencies()
         return
 
-    push_queue = six.moves.queue.Queue()
-    queue = kolla.build_queue(push_queue)
+    push_queue = queue.Queue()
+    build_queue = kolla.build_queue(push_queue)
     workers = []
 
     with join_many(workers):
         try:
-            for x in six.moves.range(conf.threads):
-                worker = WorkerThread(conf, queue)
+            for x in range(conf.threads):
+                worker = WorkerThread(conf, build_queue)
                 worker.setDaemon(True)
                 worker.start()
                 workers.append(worker)
 
-            for x in six.moves.range(conf.push_threads):
+            for x in range(conf.push_threads):
                 worker = WorkerThread(conf, push_queue)
                 worker.setDaemon(True)
                 worker.start()
                 workers.append(worker)
 
-            # sleep until queue is empty
-            while queue.unfinished_tasks or push_queue.unfinished_tasks:
+            # sleep until build_queue is empty
+            while build_queue.unfinished_tasks or push_queue.unfinished_tasks:
                 time.sleep(3)
 
             # ensure all threads exited happily
             push_queue.put(WorkerThread.tombstone)
-            queue.put(WorkerThread.tombstone)
+            build_queue.put(WorkerThread.tombstone)
         except KeyboardInterrupt:
             for w in workers:
                 w.should_stop = True
             push_queue.put(WorkerThread.tombstone)
-            queue.put(WorkerThread.tombstone)
+            build_queue.put(WorkerThread.tombstone)
             raise
 
     results = kolla.summary()

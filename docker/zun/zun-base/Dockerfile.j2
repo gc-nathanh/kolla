@@ -1,5 +1,7 @@
 FROM {{ namespace }}/{{ image_prefix }}openstack-base:{{ tag }}
+{% block labels %}
 LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
 
 {% block zun_base_header %}{% endblock %}
 
@@ -14,13 +16,14 @@ RUN echo '{{ install_type }} not yet available for {{ base_distro }}' \
 
 {% elif install_type == 'source' %}
 
-    {% if base_distro in ['centos', 'oraclelinux', 'rhel'] %}
+    {% if base_package_type == 'rpm' %}
 
         {% set zun_base_packages = [
             'httpd',
-            'mod_wsgi',
             'mod_ssl',
-            'python-ldappool'
+            'numactl',
+            'python3-ldappool',
+            'python3-mod_wsgi'
         ] %}
 
 {{ macros.install_packages(zun_base_packages | customizable("packages")) }}
@@ -28,12 +31,13 @@ RUN mkdir -p /var/www/cgi-bin/zun \
     && sed -i -r 's,^(Listen 80),#\1,' /etc/httpd/conf/httpd.conf \
     && sed -i -r 's,^(Listen 443),#\1,' /etc/httpd/conf.d/ssl.conf
 
-    {% elif base_distro in ['debian', 'ubuntu'] %}
+    {% elif base_package_type == 'deb' %}
 
         {% set zun_base_packages = [
             'apache2',
-            'libapache2-mod-wsgi',
-            'python-ldappool'
+            'libapache2-mod-wsgi-py3',
+            'numactl',
+            'python3-ldappool'
         ] %}
 
 {{ macros.install_packages(zun_base_packages | customizable("packages")) }}
@@ -52,14 +56,17 @@ RUN ln -s zun-base-source/* zun \
     && mkdir -p /etc/zun /var/www/cgi-bin/zun \
     && cp -r /zun/etc/zun/* /etc/zun/ \
     && cp /zun/zun/api/app.wsgi /var/www/cgi-bin/zun \
-    && cp -r /zun/etc/nova /etc/zun/ \
-    && chown -R zun: /etc/zun /var/www/cgi-bin/zun
+    && chown -R zun: /etc/zun /var/www/cgi-bin/zun \
+    && sed -i 's|^exec_dirs.*|exec_dirs=/var/lib/kolla/venv/bin,/sbin,/usr/sbin,/bin,/usr/bin,/usr/local/bin,/usr/local/sbin|g' /etc/zun/rootwrap.conf
 
 {% endif %}
 
+COPY zun_sudoers /etc/sudoers.d/kolla_zun_sudoers
 COPY extend_start.sh /usr/local/bin/kolla_extend_start
 
-RUN touch /usr/local/bin/kolla_zun_extend_start \
+RUN chmod 750 /etc/sudoers.d \
+    && chmod 640 /etc/sudoers.d/kolla_zun_sudoers \
+    && touch /usr/local/bin/kolla_zun_extend_start \
     && chmod 755 /var/www/cgi-bin/zun \
     && chmod 755 /usr/local/bin/kolla_extend_start /usr/local/bin/kolla_zun_extend_start
 

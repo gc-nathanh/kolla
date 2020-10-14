@@ -1,21 +1,22 @@
 FROM {{ namespace }}/{{ image_prefix }}panko-base:{{ tag }}
+{% block labels %}
 LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
 
 {% block panko_api_header %}{% endblock %}
 
 {% import "macros.j2" as macros with context %}
 
 {% if install_type == 'binary' %}
-    {% if base_distro in ['centos', 'oraclelinux', 'rhel'] %}
-       {% set panko_api_packages = [
+    {% if base_package_type == 'rpm' %}
+        {% set panko_api_packages = [
             'openstack-panko-api',
-            'python-pymongo'
+            'python3-pymongo'
         ] %}
-
-    {% elif base_distro in ['debian', 'ubuntu'] %}
+    {% elif base_package_type == 'deb' %}
         {% set panko_api_packages = [
             'panko-api',
-            'python-pymongo'
+            'python3-pymongo'
         ] %}
 
     {% endif %}

@@ -1,5 +1,7 @@
 FROM {{ namespace }}/{{ image_prefix }}base:{{ tag }}
+{% block labels %}
 LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
 
 {% block qdrouterd_header %}{% endblock %}
 
@@ -7,22 +9,21 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 
 {{ macros.configure_user(name='qdrouterd') }}
 
+{{ macros.enable_extra_repos(['qdrouterd']) }}
+
 {% block qdrouterd_install %}
-{% if base_distro in ['centos', 'oraclelinux', 'rhel'] %}
+{% if base_package_type == 'rpm' %}
     {% set qdrouterd_packages = [
         'cyrus-sasl-lib',
         'cyrus-sasl-plain',
-        'qpid-dispatch-router'
+        'qpid-dispatch-router',
+        'qpid-dispatch-tools'
     ] %}
 
-{{ macros.install_packages(qdrouterd_packages | customizable("packages")) }}
-
-{% elif base_distro in ['debian', 'ubuntu'] %}
-    {% set qdrouterd_packages = [
-        'sasl2-bin',
-        'libpython2.7',
-        'qdrouterd',
-    ] %}
+{% if base_distro in ['centos'] %}
+# make sure qpid is pulled from centos-openstack-RELEASE (RDO) repo
+{{ macros.disable_extra_repos(['extras', 'opstools']) }}
+{% endif %}
 
 {{ macros.install_packages(qdrouterd_packages | customizable("packages")) }}
 

@@ -1,11 +1,16 @@
 FROM {{ namespace }}/{{ image_prefix }}openstack-base:{{ tag }}
+{% block labels %}
 LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
 
 {% block bifrost_base_header %}{% endblock %}
 
 {% import "macros.j2" as macros with context %}
 
 {{ macros.configure_user(name='bifrost') }}
+
+{# NOTE(mgoddard): EPEL required for nginx #}
+{{ macros.enable_extra_repos(['epel']) }}
 
 {% if install_type == 'binary' %}
 
@@ -26,19 +31,32 @@ RUN ln -s bifrost-base-source/* bifrost \
 
 WORKDIR /bifrost
 
-{% if base_distro in ['debian', 'ubuntu'] %}
-RUN sed -e "s/.*mariadb.*//Ig" -i /etc/apt/sources.list && apt-get purge -y mariadb* mysql*
+{% if base_package_type == 'rpm' %}
+{# Remove updated RabbitMQ packages since these are not supported by Bifrost yet. #}
+RUN rm -f /etc/yum.repos.d/rabbitmq_rabbitmq-server.repo \
+    && dnf clean all &&  rm -rf /var/dnf/cache
+{% elif base_package_type == 'deb' %}
+RUN sed -e "s/.*mariadb.*//Ig" -e "s/.*rabbitmq.*//Ig" -i /etc/apt/sources.list \
+    && apt-get purge -y mariadb* mysql*
 {% endif %}
 
+{# ANSIBLE_GATHER_TIMEOUT is a workaround for https://github.com/ansible/ansible/issues/43884 #}
+ENV ANSIBLE_GATHER_TIMEOUT=30
+
 {% block bifrost_ansible_install %}
-RUN bash -c './scripts/env-setup.sh && source ./env-vars && \
+{%- if base_package_type == 'deb' %}
+RUN apt-get update && \
+{%- else %}
+RUN echo " " && \
+{%- endif %}
+    bash -c './scripts/env-setup.sh && source ./env-vars && \
     ansible-playbook -vvvv -i /bifrost/playbooks/inventory/target /bifrost/playbooks/install.yaml \
     -e @/tmp/build_arg.yml && \
-{% if base_distro in ['debian', 'ubuntu'] %}
-    apt-get clean'
-{% else %}
-    yum clean all'
-{% endif %}
+{%- if base_package_type == 'deb' %}
+    apt-get clean && rm -rf /var/lib/apt/lists/*'
+{%- else %}
+    dnf clean all && rm -rf /var/dnf/cache'
+{%- endif %}
 {% endblock %}
 {% endif %}
 

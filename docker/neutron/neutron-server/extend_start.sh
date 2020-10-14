@@ -3,7 +3,11 @@
 # Bootstrap and exit if KOLLA_BOOTSTRAP variable is set. This catches all cases
 # of the KOLLA_BOOTSTRAP variable being set, including empty.
 if [[ "${!KOLLA_BOOTSTRAP[@]}" ]]; then
-    neutron-db-manage --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/plugins/ml2/ml2_conf.ini upgrade head
+    OPTS="--config-file /etc/neutron/neutron.conf --config-file /etc/neutron/plugins/ml2/ml2_conf.ini"
+    neutron-db-manage ${OPTS} --subproject neutron upgrade head
+    neutron-db-manage ${OPTS} --subproject neutron-dynamic-routing upgrade head
+    neutron-db-manage ${OPTS} --subproject neutron-fwaas upgrade head
+    neutron-db-manage ${OPTS} --subproject neutron-vpnaas upgrade head
     exit 0
 fi
 
@@ -19,12 +23,18 @@ fi
 # of the KOLLA_UPGRADE variable being set, including empty.
 if [[ "${!KOLLA_UPGRADE[@]}" ]]; then
     if [[ "${!NEUTRON_DB_EXPAND[@]}" ]]; then
+        DB_ACTION="--expand"
         echo "Expanding database"
-        neutron-db-manage upgrade --expand
     fi
     if [[ "${!NEUTRON_DB_CONTRACT[@]}" ]]; then
+        DB_ACTION="--contract"
         echo "Contracting database"
-        neutron-db-manage upgrade --contract
+    fi
+
+    if [[ "${!NEUTRON_ROLLING_UPGRADE_SERVICES[@]}" ]]; then
+        for service in ${NEUTRON_ROLLING_UPGRADE_SERVICES}; do
+            neutron-db-manage --subproject $service upgrade $DB_ACTION
+        done
     fi
     exit 0
 fi

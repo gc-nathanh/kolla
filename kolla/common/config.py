@@ -19,61 +19,60 @@ from oslo_config import types
 from kolla.version import version_info as version
 
 
-BASE_OS_DISTRO = ['centos', 'rhel', 'ubuntu', 'oraclelinux', 'debian']
+BASE_OS_DISTRO = ['centos', 'rhel', 'ubuntu', 'debian']
 BASE_ARCH = ['x86_64', 'ppc64le', 'aarch64']
 DEFAULT_BASE_TAGS = {
-    'centos': '7',
-    'rhel': '7',
-    'oraclelinux': '7-slim',
-    'debian': 'stretch',
-    'ubuntu': '16.04',
+    'centos': '8',
+    'rhel': '8',
+    'debian': '10',
+    'ubuntu': '18.04',
 }
 DISTRO_RELEASE = {
-    'centos': '7',
-    'rhel': '7',
-    'oraclelinux': '7',
-    'debian': 'stretch',
-    'ubuntu': '16.04',
+    'centos': '8',
+    'rhel': '8',
+    'debian': '10',
+    'ubuntu': '18.04',
 }
+OPENSTACK_RELEASE = 'ussuri'
 
 # This is noarch repository so we will use it on all architectures
-DELOREAN = \
-    "https://trunk.rdoproject.org/centos7/current-passed-ci/delorean.repo"
-
-# TODO(hrw): with move to Pike+1 we need to make sure that aarch64 repo
-#            gets updated (docker/base/aarch64-cbs.repo file)
-#            there is ongoing work to sort that out
-DELOREAN_DEPS = {
-    'x86_64': "https://trunk.rdoproject.org/centos7/delorean-deps.repo",
-    'aarch64': "",
-    'ppc64le': ""
-}
+DELOREAN = "https://trunk.rdoproject.org/centos8-ussuri/" \
+    "consistent/delorean.repo"
+DELOREAN_DEPS = "https://trunk.rdoproject.org/centos8-ussuri/" \
+    "delorean-deps.repo"
 
 INSTALL_TYPE_CHOICES = ['binary', 'source', 'rdo', 'rhos']
 
-TARBALLS_BASE = "http://tarballs.openstack.org"
+# TODO(mandre) check for file integrity instead of downloading from an HTTPS
+# source
+TARBALLS_BASE = "https://tarballs.opendev.org"
 
 _PROFILE_OPTS = [
     cfg.ListOpt('infra',
                 default=[
-                    'ceph',
+                    'certmonger',
                     'cron',
                     'elasticsearch',
                     'etcd',
                     'fluentd',
                     'haproxy',
+                    'hacluster',
                     'keepalived',
                     'kibana',
                     'kolla-toolbox',
+                    'logstash',
                     'mariadb',
                     'memcached',
                     'mongodb',
                     'opendaylight',
                     'openvswitch',
+                    'ptp',
                     'qdrouterd',
                     'rabbitmq',
                     'redis',
+                    'rsyslog',
                     'skydive',
+                    'storm',
                     'tgtd',
                 ],
                 help='Infra images'),
@@ -88,6 +87,7 @@ _PROFILE_OPTS = [
                     'keystone',
                     'neutron',
                     'nova-',
+                    'placement',
                     'swift',
                 ],
                 help='Main images'),
@@ -98,7 +98,6 @@ _PROFILE_OPTS = [
                     'cloudkitty',
                     'congress',
                     'designate',
-                    'dragonflow',
                     'ec2-api',
                     'freezer',
                     'gnocchi',
@@ -109,12 +108,14 @@ _PROFILE_OPTS = [
                     'kuryr',
                     'magnum',
                     'manila',
+                    'masakari',
                     'mistral',
                     'monasca',
                     'murano',
                     'novajoin',
                     'octavia',
                     'panko',
+                    'qinling',
                     'rally',
                     'redis',
                     'sahara',
@@ -146,29 +147,11 @@ _PROFILE_OPTS = [
                     'memcached',
                     'neutron',
                     'nova-',
+                    'placement',
                     'openvswitch',
                     'rabbitmq',
                 ],
                 help='Default images'),
-    cfg.ListOpt('gate',
-                default=[
-                    'chrony',
-                    'cron',
-                    'fluentd',
-                    'glance',
-                    'haproxy',
-                    'horizon',
-                    'keepalived',
-                    'keystone',
-                    'kolla-toolbox',
-                    'mariadb',
-                    'memcached',
-                    'neutron',
-                    'nova-',
-                    'openvswitch',
-                    'rabbitmq',
-                ],
-                help='Gate images')
 ]
 
 hostarch = os.uname()[4]
@@ -176,17 +159,16 @@ hostarch = os.uname()[4]
 _CLI_OPTS = [
     cfg.StrOpt('base', short='b', default='centos',
                choices=BASE_OS_DISTRO,
-               help='The distro type of the base image. Allowed values '
-                    'are ' + ', '.join(BASE_OS_DISTRO)),
+               help='The distro type of the base image.'),
     cfg.StrOpt('base-tag', default='latest',
                help='The base distro image tag'),
     cfg.StrOpt('base-image',
-               help='The base image name. Default is the same with base. '
-                    'For non-x86 architectures use full name like '
-                    '"aarch64/debian".'),
+               help='The base image name. Default is the same with base.'),
     cfg.StrOpt('base-arch', default=hostarch,
                choices=BASE_ARCH,
-               help='The base architecture. Default is same as host'),
+               help='The base architecture. Default is same as host.'),
+    cfg.BoolOpt('use-dumb-init', default=True,
+                help='Use dumb-init as init system in containers'),
     cfg.BoolOpt('debug', short='d', default=False,
                 help='Turn on debugging log level'),
     cfg.BoolOpt('skip-parents', default=False,
@@ -203,6 +185,8 @@ _CLI_OPTS = [
                 help='Show all available images (filtering supported)'),
     cfg.StrOpt('namespace', short='n', default='kolla',
                help='The Docker namespace name'),
+    cfg.StrOpt('network_mode', default=None,
+               help='The network mode for Docker build. Example: host'),
     cfg.BoolOpt('cache', default=True,
                 help='Use the Docker cache when building'),
     cfg.MultiOpt('profile', types.String(), short='p',
@@ -219,7 +203,7 @@ _CLI_OPTS = [
                      ' push properly')),
     cfg.IntOpt('retries', short='r', default=3, min=0,
                help='The number of times to retry while building'),
-    cfg.MultiOpt('regex', types.String(), positional=True,
+    cfg.MultiOpt('regex', types.String(), positional=True, required=False,
                  help=('Build only images matching regex and its'
                        ' dependencies')),
     cfg.StrOpt('registry',
@@ -236,8 +220,7 @@ _CLI_OPTS = [
     cfg.StrOpt('type', short='t', default='binary',
                choices=INSTALL_TYPE_CHOICES,
                dest='install_type',
-               help=('The method of the OpenStack install. Allowed values '
-                     'are ' + ', '.join(INSTALL_TYPE_CHOICES))),
+               help=('The method of the OpenStack install.')),
     cfg.IntOpt('threads', short='T', default=8, min=1,
                help=('The number of threads to use while building.'
                      ' (Note: setting to one will allow real time'
@@ -251,400 +234,604 @@ _CLI_OPTS = [
     cfg.MultiOpt('template-override', types.String(),
                  help='Path to template override file'),
     cfg.MultiOpt('docker-dir', types.String(),
-                 help='Path to additional docker file template directory',
+                 help=('Path to additional docker file template directory,'
+                       ' can be specified multiple times'),
                  short='D', default=[]),
     cfg.StrOpt('logs-dir', help='Path to logs directory'),
     cfg.BoolOpt('pull', default=True,
                 help='Attempt to pull a newer version of the base image'),
     cfg.StrOpt('work-dir', help=('Path to be used as working directory.'
-                                 'By default, a temporary dir is created')),
+                                 ' By default, a temporary dir is created')),
+    cfg.BoolOpt('squash', default=False,
+                help=('Squash the image layers. WARNING: it will consume lots'
+                      ' of disk IO. "docker-squash" tool is required, install'
+                      ' it by "pip install docker-squash"')),
+    cfg.StrOpt('openstack-release', default=OPENSTACK_RELEASE,
+               help='OpenStack release for building kolla-toolbox'),
+    cfg.StrOpt('openstack-branch', default='master',
+               help='Branch for source images'),
+    cfg.BoolOpt('docker-healthchecks', default=True,
+                help='Add Kolla docker healthcheck scripts in the image'),
+    cfg.BoolOpt('quiet', short='q', default=False,
+                help='Do not print image logs'),
+    cfg.BoolOpt('enable-unbuildable', default=False,
+                help='Enable images marked as unbuildable')
 ]
 
 _BASE_OPTS = [
     cfg.StrOpt('maintainer',
                default='Kolla Project (https://launchpad.net/kolla)',
-               help='The MAINTAINER field'),
-    cfg.ListOpt('rpm_setup_config', default=[DELOREAN,
-                DELOREAN_DEPS[hostarch]],
+               help='Content of the maintainer label'),
+    cfg.StrOpt('distro_package_manager', default=None,
+               help=('Use this parameter to override the default package '
+                     'manager used by kolla. For example, if you want to use '
+                     'yum on a system with dnf, set this to yum which will '
+                     'use yum command in the build process')),
+    cfg.StrOpt('base_package_type', default=None,
+               help=('Set the package type of the distro. If not set then '
+                     'the packaging type is set to "rpm" if a RHEL based '
+                     'distro and "deb" if a Debian based distro.')),
+    cfg.ListOpt('rpm_setup_config', default=[],
                 help=('Comma separated list of .rpm or .repo file(s) '
                       'or URL(s) to install before building containers')),
     cfg.StrOpt('apt_sources_list', help=('Path to custom sources.list')),
-    cfg.StrOpt('apt_preferences', help=('Path to custom apt/preferences'))
+    cfg.StrOpt('apt_preferences', help=('Path to custom apt/preferences')),
+    cfg.BoolOpt('squash-cleanup', default=True,
+                help='Remove source image from Docker after squashing'),
+    cfg.StrOpt('squash-tmp-dir',
+               help='Temporary directory to be used during squashing'),
+    cfg.BoolOpt('clean_package_cache', default=True,
+                help='Clean all package cache.')
 ]
 
 
 SOURCES = {
     'openstack-base': {
         'type': 'url',
-        'location': ('$tarballs_base/requirements/'
-                     'requirements-stable-pike.tar.gz')},
+        'location': ('$tarballs_base/openstack/requirements/'
+                     'requirements-stable-ussuri.tar.gz')},
     'aodh-base': {
         'type': 'url',
-        'location': ('$tarballs_base/aodh/'
-                     'aodh-5.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/aodh/'
+                     'aodh-stable-ussuri.tar.gz')},
     'barbican-base': {
         'type': 'url',
-        'location': ('$tarballs_base/barbican/'
-                     'barbican-5.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/barbican/'
+                     'barbican-stable-ussuri.tar.gz')},
     'bifrost-base': {
         'type': 'url',
-        'location': ('$tarballs_base/bifrost/'
-                     'bifrost-4.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/bifrost/'
+                     'bifrost-stable-ussuri.tar.gz')},
     'blazar-base': {
         'type': 'url',
-        'location': ('$tarballs_base/blazar/'
-                     'blazar-master.tar.gz')},
+        'location': ('$tarballs_base/openstack/blazar/'
+                     'blazar-stable-ussuri.tar.gz')},
     'ceilometer-base': {
         'type': 'url',
-        'location': ('$tarballs_base/ceilometer/'
-                     'ceilometer-9.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/ceilometer/'
+                     'ceilometer-stable-ussuri.tar.gz')},
     'ceilometer-base-plugin-panko': {
         'type': 'url',
-        'location': ('$tarballs_base/panko/'
-                     'panko-3.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/panko/'
+                     'panko-stable-ussuri.tar.gz')},
     'cinder-base': {
         'type': 'url',
-        'location': ('$tarballs_base/cinder/'
-                     'cinder-11.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/cinder/'
+                     'cinder-stable-ussuri.tar.gz')},
     'congress-base': {
         'type': 'url',
-        'location': ('$tarballs_base/congress/'
-                     'congress-6.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/congress/'
+                     'congress-stable-ussuri.tar.gz')},
     'cloudkitty-base': {
         'type': 'url',
-        'location': ('$tarballs_base/cloudkitty/'
-                     'cloudkitty-6.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/cloudkitty/'
+                     'cloudkitty-stable-ussuri.tar.gz')},
+    'cyborg-base': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/cyborg/'
+                     'cyborg-stable-ussuri.tar.gz')},
     'designate-base': {
         'type': 'url',
-        'location': ('$tarballs_base/designate/'
-                     'designate-5.0.0.tar.gz')},
-    'dragonflow-base': {
-        'type': 'url',
-        'location': ('$tarballs_base/dragonflow/'
-                     'dragonflow-master.tar.gz')},
+        'location': ('$tarballs_base/openstack/designate/'
+                     'designate-stable-ussuri.tar.gz')},
     'ec2-api': {
         'type': 'url',
-        'location': ('$tarballs_base/ec2-api/'
-                     'ec2-api-master.tar.gz')},
+        'location': ('$tarballs_base/openstack/ec2-api/'
+                     'ec2-api-stable-ussuri.tar.gz')},
     'freezer-api': {
         'type': 'url',
-        'location': ('$tarballs_base/freezer-api/'
-                     'freezer-api-5.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/freezer-api/'
+                     'freezer-api-stable-ussuri.tar.gz')},
     'freezer-base': {
         'type': 'url',
-        'location': ('$tarballs_base/freezer/'
-                     'freezer-5.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/freezer/'
+                     'freezer-stable-ussuri.tar.gz')},
     'glance-base': {
         'type': 'url',
-        'location': ('$tarballs_base/glance/'
-                     'glance-15.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/glance/'
+                     'glance-stable-ussuri.tar.gz')},
     'gnocchi-base': {
         'type': 'git',
-        'reference': '4.0.2',
+        'reference': '4.3.4',
         'location': ('https://github.com/gnocchixyz/'
                      'gnocchi.git')},
     'heat-base': {
         'type': 'url',
-        'location': ('$tarballs_base/heat/'
-                     'heat-9.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/heat/'
+                     'heat-stable-ussuri.tar.gz')},
     'horizon': {
         'type': 'url',
-        'location': ('$tarballs_base/horizon/'
-                     'horizon-12.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/horizon/'
+                     'horizon-stable-ussuri.tar.gz')},
+    'horizon-plugin-blazar-dashboard': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/blazar-dashboard/'
+                     'blazar-dashboard-stable-ussuri.tar.gz')},
+    'horizon-plugin-congress-dashboard': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/congress-dashboard/'
+                     'congress-dashboard-stable-ussuri.tar.gz')},
     'horizon-plugin-cloudkitty-dashboard': {
         'type': 'url',
-        'location': ('$tarballs_base/cloudkitty-dashboard/'
-                     'cloudkitty-dashboard-6.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/cloudkitty-dashboard/'
+                     'cloudkitty-dashboard-stable-ussuri.tar.gz')},
     'horizon-plugin-designate-dashboard': {
         'type': 'url',
-        'location': ('$tarballs_base/designate-dashboard/'
-                     'designate-dashboard-5.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/designate-dashboard/'
+                     'designate-dashboard-stable-ussuri.tar.gz')},
+    'horizon-plugin-fwaas-dashboard': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/neutron-fwaas-dashboard/'
+                     'neutron-fwaas-dashboard-stable-ussuri.tar.gz')},
     'horizon-plugin-freezer-web-ui': {
         'type': 'url',
-        'location': ('$tarballs_base/freezer-web-ui/'
-                     'freezer-web-ui-5.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/freezer-web-ui/'
+                     'freezer-web-ui-stable-ussuri.tar.gz')},
+    'horizon-plugin-heat-dashboard': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/heat-dashboard/'
+                     'heat-dashboard-stable-ussuri.tar.gz')},
     'horizon-plugin-ironic-ui': {
         'type': 'url',
-        'location': ('$tarballs_base/ironic-ui/'
-                     'ironic-ui-3.0.1.tar.gz')},
+        'location': ('$tarballs_base/openstack/ironic-ui/'
+                     'ironic-ui-stable-ussuri.tar.gz')},
     'horizon-plugin-karbor-dashboard': {
         'type': 'url',
-        'location': ('$tarballs_base/karbor-dashboard/'
-                     'karbor-dashboard-0.4.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/karbor-dashboard/'
+                     'karbor-dashboard-stable-ussuri.tar.gz')},
     'horizon-plugin-magnum-ui': {
         'type': 'url',
-        'location': ('$tarballs_base/magnum-ui/'
-                     'magnum-ui-3.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/magnum-ui/'
+                     'magnum-ui-stable-ussuri.tar.gz')},
     'horizon-plugin-manila-ui': {
         'type': 'url',
-        'location': ('$tarballs_base/manila-ui/'
-                     'manila-ui-2.10.1.tar.gz')},
+        'location': ('$tarballs_base/openstack/manila-ui/'
+                     'manila-ui-stable-ussuri.tar.gz')},
+    'horizon-plugin-masakari-dashboard': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/masakari-dashboard/'
+                     'masakari-dashboard-stable-ussuri.tar.gz')},
     'horizon-plugin-mistral-dashboard': {
         'type': 'url',
-        'location': ('$tarballs_base/mistral-dashboard/'
-                     'mistral-dashboard-5.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/mistral-dashboard/'
+                     'mistral-dashboard-stable-ussuri.tar.gz')},
     'horizon-plugin-monasca-ui': {
         'type': 'url',
-        'location': ('$tarballs_base/monasca-ui/'
-                     'monasca-ui-1.8.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/monasca-ui/'
+                     'monasca-ui-stable-ussuri.tar.gz')},
     'horizon-plugin-murano-dashboard': {
         'type': 'url',
-        'location': ('$tarballs_base/murano-dashboard/'
-                     'murano-dashboard-4.0.0.tar.gz')},
-    'horizon-plugin-neutron-lbaas-dashboard': {
+        'location': ('$tarballs_base/openstack/murano-dashboard/'
+                     'murano-dashboard-stable-ussuri.tar.gz')},
+    'horizon-plugin-neutron-vpnaas-dashboard': {
         'type': 'url',
-        'location': ('$tarballs_base/neutron-lbaas-dashboard/'
-                     'neutron-lbaas-dashboard-3.0.1.tar.gz')},
+        'location': ('$tarballs_base/openstack/neutron-vpnaas-dashboard/'
+                     'neutron-vpnaas-dashboard-stable-ussuri.tar.gz')},
+    'horizon-plugin-octavia-dashboard': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/octavia-dashboard/'
+                     'octavia-dashboard-stable-ussuri.tar.gz')},
+    'horizon-plugin-qinling-dashboard': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/qinling-dashboard/'
+                     'qinling-dashboard-stable-ussuri.tar.gz')},
     'horizon-plugin-sahara-dashboard': {
         'type': 'url',
-        'location': ('$tarballs_base/sahara-dashboard/'
-                     'sahara-dashboard-7.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/sahara-dashboard/'
+                     'sahara-dashboard-stable-ussuri.tar.gz')},
     'horizon-plugin-searchlight-ui': {
         'type': 'url',
-        'location': ('$tarballs_base/searchlight-ui/'
-                     'searchlight-ui-3.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/searchlight-ui/'
+                     'searchlight-ui-stable-ussuri.tar.gz')},
     'horizon-plugin-senlin-dashboard': {
         'type': 'url',
-        'location': ('$tarballs_base/senlin-dashboard/'
-                     'senlin-dashboard-0.7.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/senlin-dashboard/'
+                     'senlin-dashboard-stable-ussuri.tar.gz')},
     'horizon-plugin-solum-dashboard': {
         'type': 'url',
-        'location': ('$tarballs_base/solum-dashboard/'
-                     'solum-dashboard-2.2.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/solum-dashboard/'
+                     'solum-dashboard-stable-ussuri.tar.gz')},
     'horizon-plugin-tacker-dashboard': {
         'type': 'url',
-        'location': ('http://tarballs.openstack.org/tacker-horizon/'
-                     'tacker-horizon-0.10.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/tacker-horizon/'
+                     'tacker-horizon-stable-ussuri.tar.gz')},
     'horizon-plugin-trove-dashboard': {
         'type': 'url',
-        'location': ('$tarballs_base/trove-dashboard/'
-                     'trove-dashboard-9.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/trove-dashboard/'
+                     'trove-dashboard-stable-ussuri.tar.gz')},
+    'horizon-plugin-vitrage-dashboard': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/vitrage-dashboard/'
+                     'vitrage-dashboard-stable-ussuri.tar.gz')},
     'horizon-plugin-watcher-dashboard': {
         'type': 'url',
-        'location': ('$tarballs_base/watcher-dashboard/'
-                     'watcher-dashboard-1.4.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/watcher-dashboard/'
+                     'watcher-dashboard-stable-ussuri.tar.gz')},
     'horizon-plugin-zaqar-ui': {
         'type': 'url',
-        'location': ('$tarballs_base/zaqar-ui/'
-                     'zaqar-ui-3.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/zaqar-ui/'
+                     'zaqar-ui-stable-ussuri.tar.gz')},
     'horizon-plugin-zun-ui': {
         'type': 'url',
-        'location': ('$tarballs_base/zun-ui/'
-                     'zun-ui-0.2.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/zun-ui/'
+                     'zun-ui-stable-ussuri.tar.gz')},
     'ironic-base': {
         'type': 'url',
-        'location': ('$tarballs_base/ironic/'
-                     'ironic-9.1.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/ironic/'
+                     'ironic-stable-ussuri.tar.gz')},
     'ironic-inspector': {
         'type': 'url',
-        'location': ('$tarballs_base/ironic-inspector/'
-                     'ironic-inspector-6.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/ironic-inspector/'
+                     'ironic-inspector-stable-ussuri.tar.gz')},
     'karbor-base': {
         'type': 'url',
-        'location': ('$tarballs_base/karbor/'
-                     'karbor-0.5.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/karbor/'
+                     'karbor-stable-ussuri.tar.gz')},
     'keystone-base': {
         'type': 'url',
-        'location': ('$tarballs_base/keystone/'
-                     'keystone-12.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/keystone/'
+                     'keystone-stable-ussuri.tar.gz')},
     'kuryr-base': {
         'type': 'url',
-        'location': ('$tarballs_base/kuryr/'
-                     'kuryr-lib-0.6.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/kuryr/'
+                     'kuryr-stable-ussuri.tar.gz')},
     'kuryr-libnetwork': {
         'type': 'url',
-        'location': ('$tarballs_base/kuryr-libnetwork/'
-                     'kuryr-libnetwork-master.tar.gz')},
+        'location': ('$tarballs_base/openstack/kuryr-libnetwork/'
+                     'kuryr-libnetwork-stable-ussuri.tar.gz')},
     'magnum-base': {
         'type': 'url',
-        'location': ('$tarballs_base/magnum/'
-                     'magnum-5.0.1.tar.gz')},
+        'location': ('$tarballs_base/openstack/magnum/'
+                     'magnum-stable-ussuri.tar.gz')},
     'manila-base': {
         'type': 'url',
-        'location': ('$tarballs_base/manila/'
-                     'manila-5.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/manila/'
+                     'manila-stable-ussuri.tar.gz')},
+    'masakari-base': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/masakari/'
+                     'masakari-stable-ussuri.tar.gz')},
+    'masakari-monitors': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/masakari-monitors/'
+                     'masakari-monitors-stable-ussuri.tar.gz')},
     'mistral-base': {
         'type': 'url',
-        'location': ('$tarballs_base/mistral/'
-                     'mistral-5.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/mistral/'
+                     'mistral-stable-ussuri.tar.gz')},
     'mistral-base-plugin-tacker': {
         'type': 'url',
-        'location': ('$tarballs_base/tacker/'
-                     'tacker-0.8.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/tacker/'
+                     'tacker-stable-ussuri.tar.gz')},
+    'monasca-agent': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/monasca-agent/'
+                     'monasca-agent-stable-ussuri.tar.gz')},
     'monasca-api': {
         'type': 'url',
-        'location': ('$tarballs_base/monasca-api/'
-                     'monasca-api-2.2.0.tar.gz')},
-    'monasca-log-api': {
-        'type': 'url',
-        'location': ('$tarballs_base/monasca-log-api/'
-                     'monasca-log-api-2.3.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/monasca-api/'
+                     'monasca-api-stable-ussuri.tar.gz')},
     'monasca-notification': {
         'type': 'url',
-        'location': ('$tarballs_base/monasca-notification/'
-                     'monasca-notification-1.10.1.tar.gz')},
+        'location': ('$tarballs_base/openstack/monasca-notification/'
+                     'monasca-notification-stable-ussuri.tar.gz')},
     'monasca-persister': {
         'type': 'url',
-        'location': ('$tarballs_base/monasca-persister/'
-                     'monasca-persister-1.7.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/monasca-persister/'
+                     'monasca-persister-stable-ussuri.tar.gz')},
     'monasca-statsd': {
         'type': 'url',
-        'location': ('$tarballs_base/monasca-statsd/'
-                     'monasca-statsd-1.7.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/monasca-statsd/'
+                     'monasca-statsd-stable-ussuri.tar.gz')},
+    # FIXME(dszumski): Use openstack tar when infra is fixed
+    'monasca-thresh': {
+        'type': 'url',
+        'location': ('https://github.com/openstack/monasca-thresh/archive/'
+                     '2.7.0.tar.gz')},
+    'monasca-thresh-additions-monasca-common': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/monasca-common/'
+                     'monasca-common-stable-ussuri.tar.gz')},
     'murano-base': {
         'type': 'url',
-        'location': ('$tarballs_base/murano/'
-                     'murano-4.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/murano/'
+                     'murano-stable-ussuri.tar.gz')},
     'neutron-base': {
         'type': 'url',
-        'location': ('$tarballs_base/neutron/'
-                     'neutron-11.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/neutron/'
+                     'neutron-stable-ussuri.tar.gz')},
     'neutron-base-plugin-neutron-fwaas': {
         'type': 'url',
-        'location': ('$tarballs_base/neutron-fwaas/'
-                     'neutron-fwaas-11.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/neutron-fwaas/'
+                     'neutron-fwaas-stable-ussuri.tar.gz')},
+    'neutron-base-plugin-networking-ansible': {
+        'type': 'url',
+        'location': ('$tarballs_base/x/networking-ansible/'
+                     'networking-ansible-stable-ussuri.tar.gz')},
+    'neutron-base-plugin-networking-baremetal': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/networking-baremetal/'
+                     'networking-baremetal-stable-ussuri.tar.gz')},
     'neutron-base-plugin-networking-generic-switch': {
         'type': 'url',
-        'location': ('$tarballs_base/networking-generic-switch/'
-                     'networking-generic-switch-master.tar.gz')},
+        'location': ('$tarballs_base/openstack/networking-generic-switch/'
+                     'networking-generic-switch-stable-ussuri.tar.gz')},
+    'neutron-base-plugin-networking-mlnx': {
+        'type': 'url',
+        'location': ('$tarballs_base/x/networking-mlnx/'
+                     'networking-mlnx-stable-ussuri.tar.gz')},
     'neutron-base-plugin-networking-sfc': {
         'type': 'url',
-        'location': ('$tarballs_base/networking-sfc/'
-                     'networking-sfc-5.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/networking-sfc/'
+                     'networking-sfc-stable-ussuri.tar.gz')},
     'neutron-base-plugin-vmware-nsx': {
         'type': 'url',
-        'location': ('$tarballs_base/vmware-nsx/'
-                     'vmware-nsx-master.tar.gz')},
+        'location': ('$tarballs_base/x/vmware-nsx/'
+                     'vmware-nsx-16.0.0.tar.gz')},
+    'neutron-base-plugin-vpnaas-agent': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/neutron-vpnaas/'
+                     'neutron-vpnaas-stable-ussuri.tar.gz')},
     'neutron-bgp-dragent': {
         'type': 'url',
-        'location': ('$tarballs_base/neutron-dynamic-routing/'
-                     'neutron-dynamic-routing-11.0.0.tar.gz')},
-    'neutron-lbaas-agent': {
-        'type': 'url',
-        'location': ('$tarballs_base/neutron-lbaas/'
-                     'neutron-lbaas-11.0.1.tar.gz')},
+        'location': ('$tarballs_base/openstack/neutron-dynamic-routing/'
+                     'neutron-dynamic-routing-stable-ussuri.tar.gz')},
     'neutron-server-opendaylight-plugin-networking-odl': {
         'type': 'url',
-        'location': ('$tarballs_base/networking-odl/'
-                     'networking-odl-11.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/networking-odl/'
+                     'networking-odl-stable-ussuri.tar.gz')},
     'neutron-server-opendaylight-plugin-networking-bgpvpn': {
         'type': 'url',
-        'location': ('$tarballs_base/networking-bgpvpn/'
-                     'networking-bgpvpn-7.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/networking-bgpvpn/'
+                     'networking-bgpvpn-stable-ussuri.tar.gz')},
     'neutron-server-opendaylight-plugin-networking-l2gw': {
         'type': 'url',
-        'location': ('$tarballs_base/networking-l2gw/'
-                     'networking-l2gw-master.tar.gz')},
+        'location': ('$tarballs_base/openstack/networking-l2gw/'
+                     'networking-l2gw-stable-ussuri.tar.gz')},
     'neutron-server-opendaylight-plugin-networking-sfc': {
         'type': 'url',
-        'location': ('$tarballs_base/networking-sfc/'
-                     'networking-sfc-5.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/networking-sfc/'
+                     'networking-sfc-stable-ussuri.tar.gz')},
     'neutron-server-plugin-neutron-dynamic-routing': {
         'type': 'url',
-        'location': ('$tarballs_base/neutron-dynamic-routing/'
-                     'neutron-dynamic-routing-11.0.0.tar.gz')},
-    'neutron-server-plugin-neutron-lbaas': {
-        'type': 'url',
-        'location': ('$tarballs_base/neutron-lbaas/'
-                     'neutron-lbaas-11.0.1.tar.gz')},
+        'location': ('$tarballs_base/openstack/neutron-dynamic-routing/'
+                     'neutron-dynamic-routing-stable-ussuri.tar.gz')},
     'neutron-server-plugin-vmware-nsxlib': {
         'type': 'url',
-        'location': ('$tarballs_base/vmware-nsxlib/'
-                     'vmware-nsxlib-master.tar.gz')},
-    'neutron-server-plugin-vpnaas-agent': {
-        'type': 'url',
-        'location': ('$tarballs_base/neutron-vpnaas/'
-                     'neutron-vpnaas-master.tar.gz')},
+        'location': ('$tarballs_base/x/vmware-nsxlib/'
+                     'vmware-nsxlib-stable-ussuri.tar.gz')},
     'neutron-vpnaas-agent': {
         'type': 'url',
-        'location': ('$tarballs_base/neutron-vpnaas/'
-                     'neutron-vpnaas-master.tar.gz')},
-    'neutron-server-ovn-plugin-networking-ovn': {
-        'type': 'url',
-        'location': ('$tarballs_base/networking-ovn/'
-                     'networking-ovn-3.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/neutron-vpnaas/'
+                     'neutron-vpnaas-stable-ussuri.tar.gz')},
     'nova-base': {
         'type': 'url',
-        'location': ('$tarballs_base/nova/'
-                     'nova-16.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/nova/'
+                     'nova-stable-ussuri.tar.gz')},
     'nova-base-plugin-blazar': {
         'type': 'url',
-        'location': ('$tarballs_base/blazar-nova/'
-                     'blazar-nova-master.tar.gz')},
+        'location': ('$tarballs_base/openstack/blazar-nova/'
+                     'blazar-nova-stable-ussuri.tar.gz')},
+    'nova-base-plugin-mksproxy': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/nova-mksproxy/'
+                     'nova-mksproxy-0.0.2.tar.gz')},
     'novajoin-base': {
         'type': 'url',
-        'location': ('$tarballs_base/novajoin/'
-                     'novajoin-master.tar.gz')},
+        'location': ('$tarballs_base/openstack/novajoin/'
+                     'novajoin-1.3.0.tar.gz')},
     'octavia-base': {
         'type': 'url',
-        'location': ('$tarballs_base/octavia/'
-                     'octavia-1.0.1.tar.gz')},
-    'opendaylight': {
+        'location': ('$tarballs_base/openstack/octavia/'
+                     'octavia-stable-ussuri.tar.gz')},
+    'octavia-api-plugin-ovn-octavia-provider': {
         'type': 'url',
-        'location': ('https://nexus.opendaylight.org/content/'
-                     'repositories/opendaylight.release/org/opendaylight/'
-                     'integration/distribution-karaf/0.6.1-Carbon/'
-                     'distribution-karaf-0.6.1-Carbon.tar.gz')},
+        'location': ('$tarballs_base/openstack/ovn-octavia-provider/'
+                     'ovn-octavia-provider-stable-ussuri.tar.gz')},
     'panko-base': {
         'type': 'url',
-        'location': ('$tarballs_base/panko/'
-                     'panko-3.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/panko/'
+                     'panko-stable-ussuri.tar.gz')},
+    'placement-base': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/placement/'
+                     'placement-stable-ussuri.tar.gz')},
+    'qinling-base': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/qinling/'
+                     'qinling-stable-ussuri.tar.gz')},
+    'tempest-plugin-tempest-conf': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/python-tempestconf/'
+                     'python-tempestconf-2.5.0.tar.gz')},
+    'tempest-plugin-barbican': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/barbican-tempest-plugin/'
+                     'barbican_tempest_plugin-1.0.0.tar.gz')},
+    'tempest-plugin-blazar': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/blazar-tempest-plugin/'
+                     'blazar_tempest_plugin-0.4.0.tar.gz')},
+    'tempest-plugin-cinder': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/cinder-tempest-plugin/'
+                     'cinder-tempest-plugin-1.0.0.tar.gz')},
+    'tempest-plugin-congress': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/congress-tempest-plugin/'
+                     'congress-tempest-plugin-1.0.0.tar.gz')},
+    'tempest-plugin-ec2api': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/ec2api-tempest-plugin/'
+                     'ec2api-tempest-plugin-1.0.0.tar.gz')},
+    'tempest-plugin-heat': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/heat-tempest-plugin/'
+                     'heat-tempest-plugin-1.0.0.tar.gz')},
+    'tempest-plugin-ironic': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/ironic-tempest-plugin/'
+                     'ironic-tempest-plugin-2.0.0.tar.gz')},
+    'tempest-plugin-keystone': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/keystone-tempest-plugin/'
+                     'keystone_tempest_plugin-0.4.0.tar.gz')},
+    'tempest-plugin-magnum': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/magnum-tempest-plugin/'
+                     'magnum_tempest_plugin-1.0.0.tar.gz')},
+    'tempest-plugin-manila': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/manila-tempest-plugin/'
+                     'manila-tempest-plugin-1.0.0.tar.gz')},
+    'tempest-plugin-mistral': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/mistral-tempest-plugin/'
+                     'mistral_tempest_tests-1.0.0.tar.gz')},
+    'tempest-plugin-monasca': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/monasca-tempest-plugin/'
+                     'monasca-tempest-plugin-2.0.0.tar.gz')},
+    'tempest-plugin-murano': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/murano-tempest-plugin/'
+                     'murano-tempest-plugin-2.0.0.tar.gz')},
+    'tempest-plugin-neutron': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/neutron-tempest-plugin/'
+                     'neutron-tempest-plugin-1.1.0.tar.gz')},
+    'tempest-plugin-patrole': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/patrole/'
+                     'patrole-0.9.0.tar.gz')},
+    'tempest-plugin-telemetry': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/telemetry-tempest-plugin/'
+                     'telemetry_tempest_plugin-1.0.0.tar.gz')},
+    'tempest-plugin-trove': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/trove-tempest-plugin/'
+                     'trove_tempest_plugin-1.0.0.tar.gz')},
+    'tempest-plugin-vitrage': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/vitrage-tempest-plugin/'
+                     'vitrage-tempest-plugin-4.0.0.tar.gz')},
+    'tempest-plugin-watcher': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/watcher-tempest-plugin/'
+                     'watcher-tempest-plugin-2.0.0.tar.gz')},
+    'tempest-plugin-zaqar': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/zaqar-tempest-plugin/'
+                     'zaqar_tempest_plugin-1.0.0.tar.gz')},
     'rally': {
         'type': 'url',
-        'location': ('$tarballs_base/rally/'
-                     'rally-master.tar.gz')},
+        'location': ('$tarballs_base/openstack/rally/'
+                     'rally-3.1.0.tar.gz')},
     'sahara-base': {
         'type': 'url',
-        'location': ('$tarballs_base/sahara/'
-                     'sahara-7.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/sahara/'
+                     'sahara-stable-ussuri.tar.gz')},
+    'sahara-base-plugin-ambari': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/sahara-plugin-ambari/'
+                     'sahara-plugin-ambari-stable-ussuri.tar.gz')},
+    'sahara-base-plugin-cdh': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/sahara-plugin-cdh/'
+                     'sahara-plugin-cdh-stable-ussuri.tar.gz')},
+    'sahara-base-plugin-mapr': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/sahara-plugin-mapr/'
+                     'sahara-plugin-mapr-stable-ussuri.tar.gz')},
+    'sahara-base-plugin-spark': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/sahara-plugin-spark/'
+                     'sahara-plugin-spark-stable-ussuri.tar.gz')},
+    'sahara-base-plugin-storm': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/sahara-plugin-storm/'
+                     'sahara-plugin-storm-stable-ussuri.tar.gz')},
+    'sahara-base-plugin-vanilla': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/sahara-plugin-vanilla/'
+                     'sahara-plugin-vanilla-stable-ussuri.tar.gz')},
     'searchlight-base': {
         'type': 'url',
-        'location': ('$tarballs_base/searchlight/'
-                     'searchlight-3.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/searchlight/'
+                     'searchlight-stable-ussuri.tar.gz')},
     'senlin-base': {
         'type': 'url',
-        'location': ('$tarballs_base/senlin/'
-                     'senlin-4.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/senlin/'
+                     'senlin-stable-ussuri.tar.gz')},
     'solum-base': {
         'type': 'url',
-        'location': ('$tarballs_base/solum/'
-                     'solum-5.4.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/solum/'
+                     'solum-stable-ussuri.tar.gz')},
     'swift-base': {
         'type': 'url',
-        'location': ('$tarballs_base/swift/'
-                     'swift-2.15.1.tar.gz')},
+        'location': ('$tarballs_base/openstack/swift/'
+                     'swift-stable-ussuri.tar.gz')},
     'tacker-base': {
         'type': 'url',
-        'location': ('$tarballs_base/tacker/'
-                     'tacker-0.8.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/tacker/'
+                     'tacker-stable-ussuri.tar.gz')},
+    'tacker-base-plugin-networking-sfc': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/networking-sfc/'
+                     'networking-sfc-stable-ussuri.tar.gz')},
     'tempest': {
         'type': 'url',
-        'location': ('$tarballs_base/tempest/'
-                     'tempest-master.tar.gz')},
+        'location': ('$tarballs_base/openstack/tempest/'
+                     'tempest-24.0.0.tar.gz')},
+    'tripleoclient': {
+        'type': 'url',
+        'location': ('$tarballs_base/openstack/python-tripleoclient/'
+                     'tripleoclient-stable-ussuri.tar.gz')},
     'trove-base': {
         'type': 'url',
-        'location': ('$tarballs_base/trove/'
-                     'trove-8.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/trove/'
+                     'trove-stable-ussuri.tar.gz')},
     'vitrage-base': {
         'type': 'url',
-        'location': ('$tarballs_base/vitrage/'
-                     'vitrage-1.8.1.tar.gz')},
+        'location': ('$tarballs_base/openstack/vitrage/'
+                     'vitrage-stable-ussuri.tar.gz')},
     'vmtp': {
         'type': 'url',
-        'location': ('$tarballs_base/vmtp/'
+        'location': ('$tarballs_base/openstack/vmtp/'
                      'vmtp-master.tar.gz')},
     'watcher-base': {
         'type': 'url',
-        'location': ('$tarballs_base/watcher/'
-                     'python-watcher-1.4.1.tar.gz')},
-    'zaqar': {
+        'location': ('$tarballs_base/openstack/watcher/'
+                     'watcher-stable-ussuri.tar.gz')},
+    'zaqar-base': {
         'type': 'url',
-        'location': ('$tarballs_base/zaqar/'
-                     'zaqar-5.0.0.tar.gz')},
+        'location': ('$tarballs_base/openstack/zaqar/'
+                     'zaqar-stable-ussuri.tar.gz')},
     'zun-base': {
         'type': 'url',
-        'location': ('$tarballs_base/zun/'
-                     'zun-0.2.0.tar.gz')}
+        'location': ('$tarballs_base/openstack/zun/'
+                     'zun-stable-ussuri.tar.gz')}
 }
 
 
@@ -863,10 +1050,6 @@ USERS = {
         'uid': 42454,
         'gid': 42454,
     },
-    'ceph-user': {
-        'uid': 64045,
-        'gid': 64045,
-    },
     'memcached-user': {
         'uid': 42457,
         'gid': 42457,
@@ -895,7 +1078,7 @@ USERS = {
         'uid': 42463,
         'gid': 42463,
     },
-    'dragonflow-user': {
+    'dragonflow-user': {  # unused user (dragonflow dropped)
         'uid': 42464,
         'gid': 42464,
     },
@@ -938,6 +1121,50 @@ USERS = {
     'fluentd-user': {
         'uid': 42474,
         'gid': 42474,
+    },
+    'almanach-user': {  # unused user (almanach dropped)
+        'uid': 42475,
+        'gid': 42475,
+    },
+    'openvswitch-user': {
+        'uid': 42476,  # unused user
+        'gid': 42476,
+    },
+    'hugetlbfs-user': {
+        'uid': 42477,  # unused user, but we need the group for vhost socket
+        'gid': 42477,
+    },
+    'logstash-user': {
+        'uid': 42478,
+        'gid': 42478,
+    },
+    'storm-user': {
+        'uid': 42479,
+        'gid': 42479,
+    },
+    'tempest-user': {
+        'uid': 42480,
+        'gid': 42480,
+    },
+    'nfast-user': {
+        'uid': 42481,  # unused user, but we need the group for thales hsm
+        'gid': 42481,
+    },
+    'placement-user': {
+        'uid': 42482,
+        'gid': 42482,
+    },
+    'cyborg-user': {
+        'uid': 42483,
+        'gid': 42483,
+    },
+    'qinling-user': {
+        'uid': 42484,
+        'gid': 42484,
+    },
+    'masakari-user': {
+        'uid': 42485,
+        'gid': 42485,
     }
 }
 
@@ -955,8 +1182,8 @@ def get_source_opts(type_=None, location=None, reference=None):
 
 def get_user_opts(uid, gid):
     return [
-        cfg.StrOpt('uid', default=uid, help='The user id'),
-        cfg.StrOpt('gid', default=gid, help='The group id'),
+        cfg.IntOpt('uid', default=uid, help='The user id'),
+        cfg.IntOpt('gid', default=gid, help='The group id'),
     ]
 
 
@@ -1004,6 +1231,9 @@ def parse(conf, args, usage=None, prog=None,
     # NOTE(jeffrey4l): set the default base tag based on the
     # base option
     conf.set_default('base_tag', DEFAULT_BASE_TAGS.get(conf.base))
+    prefix = '' if conf.openstack_release == 'master' else 'stable-'
+    openstack_branch = '{}{}'.format(prefix, conf.openstack_release)
+    conf.set_default('openstack_branch', openstack_branch)
 
     if not conf.base_image:
         conf.base_image = conf.base

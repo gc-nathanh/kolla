@@ -1,75 +1,126 @@
 FROM {{ namespace }}/{{ image_prefix }}base:{{ tag }}
+{% block labels %}
 LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
+{% if base_package_type == 'rpm' and base_arch != 'x86_64' %}
+LABEL fluentd_version="0.12" fluentd_binary="fluentd"
+    {% set fluentd_user = 'fluentd' %}
+{% elif base_package_type == 'deb' and base_arch != 'x86_64' %}
+LABEL fluentd_version="0.14" fluentd_binary="fluentd"
+    {% set fluentd_user = 'fluentd' %}
+{% else %}
+LABEL fluentd_version="0.14" fluentd_binary="td-agent"
+    {% set fluentd_user = 'td-agent' %}
+{% endif %}
 
 {% block fluentd_header %}{% endblock %}
 
 {% import "macros.j2" as macros with context %}
 
-{% if base_distro in ['centos', 'oraclelinux', 'rhel'] %}
+{{ macros.enable_extra_repos(['td-agent']) }}
 
-    {{ macros.configure_user(name='fluentd', groups='mysql') }}
-# TODO:remove hostname package as it should be installed by the
-# fluentd dependencies.
-# hostname package is installed by default on CentOS/RHEL but not on
-# oraclelinux.
+{% if base_package_type == 'rpm' %}
 
     {% set fluentd_packages = [
-        'fluentd',
         'gcc-c++',
-        'hostname',
-        'make',
-        'ruby-devel'
+        'make'
     ] %}
 
-{% elif base_distro in ['debian', 'ubuntu'] %}
-    {{ macros.configure_user(name='td-agent', groups='mysql') }}
+    {% if base_arch == 'x86_64' %}
+        {% set fluentd_packages = fluentd_packages + [
+            'td-agent'
+        ] %}
+    {% else %}
+        {% set fluentd_packages = fluentd_packages + [
+            'fluentd',
+            'ruby-devel',
+            'rubygem-fluent-plugin-elasticsearch',
+            'rubygem-fluent-plugin-grok-parser',
+            'rubygem-fluent-plugin-rewrite-tag-filter'
+        ] %}
+    {% endif %}
+
+{% elif base_package_type == 'deb' %}
+
     {% set fluentd_packages = [
         'g++',
-        'make',
-        'td-agent'
+        'make'
     ] %}
+
+    {% if base_arch == 'x86_64' %}
+        {% set fluentd_packages = fluentd_packages + [
+            'td-agent'
+        ] %}
+    {% else %}
+        {% set fluentd_packages = fluentd_packages + [
+            'ruby',
+            'ruby-dev'
+        ] %}
+    {% endif %}
 
 {% endif %}
 
+{{ macros.configure_user(name=fluentd_user, groups='mysql') }}
 {{ macros.install_packages(fluentd_packages | customizable("packages")) }}
+
+# Distro specific files and operations
+# Fluentd on rpm-based non-x86_64 is installed from rpm
+{% if base_package_type == 'deb' and base_arch != 'x86_64' %}
+RUN /usr/bin/gem install fluentd --no-rdoc --no-ri
+{% endif %}
+
+COPY fluentd_sudoers /etc/sudoers.d/kolla_fluentd_sudoers
+
+RUN chmod 440 /etc/sudoers.d/kolla_fluentd_sudoers \
+    && mkdir -p /etc/{{ fluentd_user }} \
+    && mkdir -p /var/run/{{ fluentd_user }} \
+    && chown -R {{ fluentd_user }}: /etc/{{ fluentd_user }} /var/run/{{ fluentd_user }}
+
+COPY extend_start.sh /usr/local/bin/kolla_extend_start
+RUN chmod 755 /usr/local/bin/kolla_extend_start
 
 {% block fluentd_plugins_install %}
 
-{% if base_distro in  ['centos', 'oraclelinux', 'rhel'] %}
-COPY rpm_fluentd_sudoers /etc/sudoers.d/kolla_fluentd_sudoers
-COPY extend_start.sh /usr/local/bin/kolla_extend_start
-
-RUN ulimit -n 65536 \
-    && gem install --minimal-deps activesupport:4.2.9 public_suffix:2.0.5 fluent-plugin-parser fluent-plugin-kubernetes_metadata_filter fluent-plugin-elasticsearch fluent-plugin-grep fluent-plugin-grok-parser:0.3.1 fluent-plugin-rewrite-tag-filter \
-    && chmod -R 440 /etc/sudoers.d/kolla_fluentd_sudoers  \
-    && chmod 755 /usr/local/bin/kolla_extend_start \
-    && mkdir -p /var/run/fluentd \
-    && chown -R fluentd: /etc/fluentd /var/run/fluentd
-
-{% elif base_distro in ['debian', 'ubuntu'] %}
-# NOTE: We use fluentd version is v12.0 so fluent-plugin-grok-parse version should < 1.0.0.
-# https://github.com/fluent/fluent-plugin-grok-parser
-RUN ulimit -n 65536 \
-    && sed -i -e "s/USER=td-agent/USER=root/" -e "s/GROUP=td-agent/GROUP=root/" /etc/init.d/td-agent \
-    && td-agent-gem install fluent-plugin-concat:1.0.0 fluent-plugin-parser fluent-plugin-kubernetes_metadata_filter fluent-plugin-elasticsearch fluent-plugin-grep fluent-plugin-grok-parser:0.3.1 fluent-plugin-rewrite-tag-filter \
-    && rm -f /etc/td-agent/td-agent.conf
-
-COPY fluentd_sudoers /etc/sudoers.d/kolla_fluentd_sudoers
-COPY extend_start.sh /usr/local/bin/kolla_extend_start
-
-RUN chmod 440 /etc/sudoers.d/kolla_fluentd_sudoers \
-    && chmod 755 /usr/local/bin/kolla_extend_start \
-    && chown -R td-agent: /etc/td-agent
-
+{% if not (base_package_type == 'rpm' and base_arch != 'x86_64') %}
+    {% set fluentd_plugins = [
+        'fluent-plugin-elasticsearch',
+        'fluent-plugin-grep',
+        'fluent-plugin-grok-parser',
+        'fluent-plugin-parser',
+        'fluent-plugin-prometheus',
+        'fluent-plugin-rewrite-tag-filter',
+    ] %}
 {% endif %}
+
+# NOTE(hrw): one of plugins fetches 'string-scrub' which tries to use
+# /usr/bin/mkdir directly while in Debian it is in /bin
+{% if base_distro == 'debian' and base_arch == 'x86_64' %}
+RUN ln -s /bin/mkdir /usr/bin/mkdir
+{% endif %}
+
+{{ macros.install_fluent_plugins(fluentd_user, fluentd_plugins | customizable("plugins")) }}
+
+{% endblock %}
+
+{% block fluentd_monasca_plugin_install %}
+# Build and install Fluentd output plugin for Monasca API
+ARG monasca_output_plugin_tag=1.0.1
+ARG monasca_output_plugin_url=https://github.com/monasca/fluentd-monasca/archive/$monasca_output_plugin_tag.tar.gz
+
+RUN curl -sSL $monasca_output_plugin_url -o /tmp/fluentd-monasca.tar.gz \
+    && tar -xvf /tmp/fluentd-monasca.tar.gz -C /tmp \
+    && cd /tmp/fluentd-monasca-* \
+{%- if fluentd_user == 'fluentd' %}
+    && gem build fluentd-monasca-output.gemspec \
+{%- else %}
+    && td-agent-gem build fluentd-monasca-output.gemspec \
+{%- endif %}
+    && {{ macros.install_fluent_plugins(fluentd_user, ['fluentd-monasca-output-*.gem'], chain=True) }} \
+    && rm -rf /tmp/fluentd*
 
 {% endblock %}
 
 {% block fluentd_footer %}{% endblock %}
 {% block footer %}{% endblock %}
 
-{% if base_distro in ['centos', 'oraclelinux', 'rhel'] %}
-USER fluentd
-{% elif base_distro in ['debian', 'ubuntu'] %}
-USER td-agent
-{% endif %}
+USER {{ fluentd_user }}

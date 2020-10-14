@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -30,8 +30,7 @@ PROJECT_ROOT = os.path.abspath(os.path.join(
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-
-from kolla.common import config
+from kolla.common import config  # noqa
 
 
 logging.basicConfig(level=logging.INFO)
@@ -42,12 +41,54 @@ TARGET = '.releases'
 
 SKIP_PROJECTS = {
     'gnocchi-base': 'Gnocchi is not managed by openstack/releases project',
+    'monasca-thresh': 'Package not published in tarballs.openstack.org',
+    'neutron-base-plugin-vmware-nsx': 'vmware-nsx is not managed by '
+                                      'openstack/releases project (need to '
+                                      'check PyPI, they sync major versions '
+                                      'with neutron)',
     'rally': 'Rally is not managed by openstack/releases project',
-    'nova-novncproxy': ('nova-novncproxy is not managed by'
-                        ' openstack/releases project'),
-    'nova-spicehtml5proxy': ('nova-spicehtml5proxy is not managed'
-                             ' by openstack/releases project'),
-    'openstack-base': 'There is no tag for requirements project'
+}
+
+# NOTE(hrw): those projects we take as they are they may have just one old
+# release or no stable branch tarballs
+ALWAYS_USE_VERSION_PROJECTS = {
+    'barbican_tempest_plugin',
+    'blazar_tempest_plugin',
+    'cinder-tempest-plugin',
+    'congress-tempest-plugin',
+    'ec2api-tempest-plugin',
+    'heat-tempest-plugin',
+    'ironic-tempest-plugin',
+    'keystone_tempest_plugin',
+    'magnum_tempest_plugin',
+    'manila-tempest-plugin',
+    'mistral_tempest_tests',
+    'monasca-tempest-plugin',
+    'murano-tempest-plugin',
+    'neutron-tempest-plugin',
+    'python-tempestconf',
+    'telemetry_tempest_plugin',
+    'patrole',
+    'trove_tempest_plugin',
+    'vitrage-tempest-plugin',
+    'watcher-tempest-plugin',
+    'zaqar_tempest_plugin',
+    'nova-mksproxy',
+    'novajoin',
+    'tempest',
+    'vmtp',
+}
+
+# NOTE(hrw): those projects have different names for release tarballs (first
+# column) and other for branch tarballs
+RENAME_PROJECTS = {
+    'kuryr-lib': 'kuryr',
+    'openstack-congress': 'congress',
+    'openstack-cyborg': 'cyborg',
+    'openstack-heat': 'heat',
+    'openstack-placement': 'placement',
+    'python-watcher': 'watcher',
+    'requirements-stable': 'requirements',
 }
 
 RE_DEFAULT_BRANCH = re.compile('^defaultbranch=stable/(.*)')
@@ -91,11 +132,28 @@ def load_all_info(openstack_release):
         if 'releases' in info and len(info['releases']) > 0:
             latest_release = info['releases'][-1]
             latest_version = latest_release['version']
+            if latest_version.endswith('-em') and len(info['releases']) > 1:
+                # Ignore Extended Maintenance (EM) releases, e.g. pike-em.
+                latest_release = info['releases'][-2]
+                latest_version = latest_release['version']
             for project in latest_release['projects']:
                 project_name = project['repo'].split('/')[-1]
-                projects[project_name] = latest_version
+
                 if 'tarball-base' in project:
-                    projects[project['tarball-base']] = latest_version
+                    tarball_base = project['tarball-base']
+                elif 'repository-settings' in info:
+                    try:
+                        repo = project['repo']
+                        repository_settings = info['repository-settings'][repo]
+                        tarball_base = repository_settings['tarball-base']
+                    except KeyError:
+                        tarball_base = project_name
+
+                projects[project_name] = {'latest_version': latest_version,
+                                          'tarball_base': tarball_base}
+                projects[tarball_base] = {'latest_version': latest_version,
+                                          'tarball_base': tarball_base}
+
     return projects
 
 
@@ -111,6 +169,9 @@ def main():
     parser.add_argument('--check', '-c',
                         default=False, action='store_true',
                         help='Run without update config.py file')
+    parser.add_argument('--versioned-releases', '-v',
+                        default=False, action='store_true',
+                        help='Use versioned releases tarballs')
     conf = parser.parse_args(sys.argv[1:])
 
     if not conf.openstack_release:
@@ -134,7 +195,7 @@ def main():
         independent_project = False
         value = config.SOURCES[key]
         if key in SKIP_PROJECTS:
-            LOG.info('%s is skiped: %s', key, SKIP_PROJECTS[key])
+            LOG.info('%s is skipped: %s', key, SKIP_PROJECTS[key])
             continue
         # get project name from location
         location = value['location']
@@ -145,24 +206,38 @@ def main():
         else:
             raise ValueError('Can not parse "%s"' % filename)
 
-        latest_tag = projects.get(project_name, None)
-        if not latest_tag:
-            latest_tag = independents_projects.get(project_name, None)
-            if latest_tag:
-                independent_project = True
-            else:
-                LOG.warning('Can not find %s project release', project_name)
-                continue
+        if (project_name == "requirements" or
+                (not conf.versioned_releases and
+                 project_name not in ALWAYS_USE_VERSION_PROJECTS)):
+            # Use the stable branch for requirements.
+            latest_tag = "stable-{}".format(conf.openstack_release)
+            tarball_base = project_name
+            if project_name in RENAME_PROJECTS:
+                tarball_base = RENAME_PROJECTS[project_name]
+        elif project_name in projects:
+            latest_tag = projects[project_name]['latest_version']
+            tarball_base = projects[project_name]['tarball_base']
+        elif project_name in independents_projects:
+            latest_tag = independents_projects[project_name]['latest_version']
+            tarball_base = independents_projects[project_name]['tarball_base']
+            independent_project = True
+        else:
+            LOG.warning('Can not find %s project release',
+                        project_name)
+            continue
+
         if latest_tag and old_tag != latest_tag:
             if independent_project and not conf.include_independent:
                 LOG.warning('%s is an independent project, please update it'
                             ' manually. Possible need upgrade from %s to %s',
                             project_name, old_tag, latest_tag)
                 continue
-            LOG.info('Update %s from %s to %s', project_name, old_tag,
-                     latest_tag)
-            old_str = '{}-{}'.format(project_name, old_tag)
-            new_str = '{}-{}'.format(project_name, latest_tag)
+            LOG.info('Update %s from %s to %s %s', project_name, old_tag,
+                     tarball_base, latest_tag)
+            # starting "'" to replace whole filenames not partial ones
+            # so nova does not change blazar-nova
+            old_str = "'{}-{}".format(project_name, old_tag)
+            new_str = "'{}-{}".format(tarball_base, latest_tag)
             config_py = config_py.replace(old_str, new_str)
 
     if not conf.check:

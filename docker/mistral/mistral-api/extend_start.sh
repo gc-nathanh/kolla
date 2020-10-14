@@ -7,3 +7,5 @@ if [[ "${!KOLLA_BOOTSTRAP[@]}" ]]; then
     mistral-db-manage --config-file /etc/mistral/mistral.conf populate
     exit 0
 fi
+
+. /usr/local/bin/kolla_httpd_setup

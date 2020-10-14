@@ -7,3 +7,5 @@ if [[ "${!KOLLA_BOOTSTRAP[@]}" ]]; then
     cloudkitty-storage-init
     exit 0
 fi
+
+. /usr/local/bin/kolla_httpd_setup

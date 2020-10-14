@@ -1,5 +1,7 @@
 FROM {{ namespace }}/{{ image_prefix }}base:{{ tag }}
+{% block labels %}
 LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
 
 {% block opendaylight_header %}{% endblock %}
 
@@ -7,16 +9,27 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 
 {{ macros.configure_user(name='odl') }}
 
+{{ macros.enable_extra_repos(['opendaylight']) }}
+
 {% block opendaylight_install %}
 
-{% set opendaylight_packages = ['opendaylight'] %}
-{% if base_distro in ['debian', 'ubuntu'] %}
-# NOTE(egonzalez): ODL fails to install in debian family images with
-# existing odl user. First install odl and then allow usage of
-# install_packages macro for custom configs.
-    {% block debian_opendaylight_install_fix_block %}
-        {{ macros.debian_opendaylight_existing_user_fix() }}
-    {% endblock %}
+{% if base_package_type == 'rpm' %}
+    {% set opendaylight_packages = [
+        'java-1.8.0-openjdk-headless',
+        'opendaylight',
+    ] %}
+{% elif base_package_type == 'deb' %}
+
+    {% if base_distro == 'debian' %}
+        {% set java_version = '11' %}
+    {% elif base_distro == 'ubuntu' %}
+        {% set java_version = '8' %}
+    {% endif %}
+
+    {% set opendaylight_packages = [
+        'opendaylight',
+        'openjdk-' + java_version + '-jre-headless',
+    ] %}
 {% endif %}
 
 {{ macros.install_packages(opendaylight_packages | customizable("packages")) }}

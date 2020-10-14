@@ -1,5 +1,7 @@
 FROM {{ namespace }}/{{ image_prefix }}nova-base:{{ tag }}
+{% block labels %}
 LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
 
 {% block nova_ssh_header %}{% endblock %}
 
@@ -11,7 +13,13 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
     'openssh-server'
 ] %}
 
-{% if base_distro in ['debian', 'ubuntu'] %}
+{% if base_package_type == 'rpm' %}
+
+# NOTE(mgoddard): The centos:8 image contains a /run/nologin file, which
+# prevents SSH access to it.
+RUN rm -f /run/nologin
+
+{% elif base_package_type == 'deb' %}
 
 RUN mkdir -p /var/run/sshd \
     && chmod 0755 /var/run/sshd

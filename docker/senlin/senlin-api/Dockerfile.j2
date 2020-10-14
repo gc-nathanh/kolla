@@ -1,12 +1,21 @@
 FROM {{ namespace }}/{{ image_prefix }}senlin-base:{{ tag }}
+{% block labels %}
 LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
 
 {% block senlin_api_header %}{% endblock %}
 
-{% if install_type == 'binary' %}
+{% import "macros.j2" as macros with context %}
 
-RUN echo '{{ install_type }} not yet available for {{ base_distro }}' \
-    && /bin/false
+{% if install_type == 'binary' %}
+    {% if base_package_type == 'rpm' %}
+        {% set senlin_api_packages = ['openstack-senlin-api'] %}
+
+    {% elif base_package_type == 'deb' %}
+        {% set senlin_api_packages = ['senlin-api'] %}
+    {% endif %}
+
+{{ macros.install_packages(senlin_api_packages | customizable("packages")) }}
 
 {% endif %}
 

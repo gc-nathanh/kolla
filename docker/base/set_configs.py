@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -147,7 +147,15 @@ class ConfigFile(object):
             if not self.merge:
                 self._delete_path(dest)
             self._create_parent_dirs(dest)
-            self._merge_directories(source, dest)
+            try:
+                self._merge_directories(source, dest)
+            except OSError:
+                # If a source is tried to merge with a read-only mount, it
+                # may throw an OSError. Because we don't print the source or
+                # dest anywhere, let's catch the exception and log a better
+                # message to help with tracking down the issue.
+                LOG.error('Unable to merge %s with %s', source, dest)
+                raise
 
     def _cmp_file(self, source, dest):
         # check exsit
@@ -196,8 +204,8 @@ class ConfigFile(object):
                     return False
             for file_ in files:
                 full_path = os.path.join(root, file_)
-                dest_full_path = os.path.join(dest, os.path.relpath(source,
-                                                                    full_path))
+                dest_full_path = os.path.join(dest, os.path.relpath(full_path,
+                                                                    source))
                 if not self._cmp_file(full_path, dest_full_path):
                     return False
         return True
@@ -217,8 +225,9 @@ class ConfigFile(object):
             # otherwise means copy the source to dest
             if dest.endswith(os.sep):
                 dest = os.path.join(dest, os.path.basename(source))
-            if os.path.isdir(source) and not self._cmp_dir(source, dest):
-                bad_state_files.append(source)
+            if os.path.isdir(source):
+                if not self._cmp_dir(source, dest):
+                    bad_state_files.append(source)
             elif not self._cmp_file(source, dest):
                 bad_state_files.append(source)
         if len(bad_state_files) != 0:
@@ -235,7 +244,7 @@ def validate_config(config):
     # Validate config sections
     for data in config.get('config_files', list()):
         # Verify required keys exist.
-        if not data.viewkeys() >= required_keys:
+        if not set(data.keys()) >= required_keys:
             message = 'Config is missing required keys: %s' % required_keys
             raise InvalidConfig(message)
         if ('owner' not in data or 'perm' not in data) \
@@ -310,8 +319,14 @@ def copy_config(config):
     LOG.info('Writing out command to execute')
     LOG.debug("Command is: %s", config['command'])
     # The value from the 'command' key will be written to '/run_command'
-    with open('/run_command', 'w+') as f:
+    cmd = '/run_command'
+    with open(cmd, 'w+') as f:
         f.write(config['command'])
+    # Make sure the generated file is readable by all users
+    try:
+        os.chmod(cmd, 0o644)
+    except OSError:
+        LOG.exception('Failed to set permission of %s to 0o644', cmd)
 
 
 def user_group(owner):
@@ -390,7 +405,7 @@ def execute_config_strategy(config):
 
 
 def execute_config_check(config):
-    for data in config['config_files']:
+    for data in config.get('config_files', []):
         config_file = ConfigFile(**data)
         config_file.check()
 

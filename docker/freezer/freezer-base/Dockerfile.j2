@@ -1,5 +1,7 @@
 FROM {{ namespace }}/{{ image_prefix }}openstack-base:{{ tag }}
+{% block labels %}
 LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
 
 {% block freezer_base_header %}{% endblock %}
 
@@ -7,12 +9,21 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 
 {{ macros.configure_user(name='freezer') }}
 
+{# NOTE(mgoddard): EPEL required for trickle package. Not provided by EPEL8 #}
+{{ macros.enable_extra_repos(['epel']) }}
+
 {% if install_type == 'binary' %}
 
 RUN echo '{{ install_type }} not yet available for {{ base_distro }}' \
     && /bin/false
 
 {% elif install_type == 'source' %}
+    {% if base_package_type != 'rpm' %}
+        {% set freezer_base_packages = [
+            'trickle'
+        ] %}
+{{ macros.install_packages(freezer_base_packages | customizable("packages")) }}
+    {% endif %}
 
 ADD freezer-base-archive /freezer-base-source
 

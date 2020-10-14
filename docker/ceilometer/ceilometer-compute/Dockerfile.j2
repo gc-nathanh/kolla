@@ -1,33 +1,33 @@
 FROM {{ namespace }}/{{ image_prefix }}ceilometer-base:{{ tag }}
+{% block labels %}
 LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
 
 {% block ceilometer_compute_header %}{% endblock %}
 
 {% import "macros.j2" as macros with context %}
 
 {% if install_type == 'binary' %}
-    {% if base_distro in ['centos', 'oraclelinux', 'rhel'] %}
+    {% if base_package_type == 'rpm' %}
         {% set ceilometer_compute_packages = [
             'openstack-ceilometer-compute',
-            'python-ceilometerclient'
          ] %}
-    {% elif base_distro in ['debian', 'ubuntu'] %}
+    {% elif base_package_type == 'deb' %}
         {% set ceilometer_compute_packages = [
             'ceilometer-agent-compute',
-            'python-ceilometerclient',
-            'python-libvirt'
+            'python3-libvirt'
          ] %}
     {% endif %}
 {{ macros.install_packages(ceilometer_compute_packages | customizable("packages")) }}
 
 {% elif install_type == 'source' %}
-    {% if base_distro in ['centos', 'oraclelinux', 'rhel'] %}
+    {% if base_package_type == 'rpm' %}
         {% set ceilometer_compute_packages = [
-            'libvirt-python'
+            'python3-libvirt'
          ] %}
-    {% elif base_distro in ['debian', 'ubuntu'] %}
+    {% elif base_package_type == 'deb' %}
         {% set ceilometer_compute_packages = [
-            'python-libvirt'
+            'python3-libvirt'
          ] %}
     {% endif %}
 

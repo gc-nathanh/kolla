@@ -1,12 +1,14 @@
 FROM {{ namespace }}/{{ image_prefix }}manila-base:{{ tag }}
+{% block labels %}
 LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
 
 {% block manila_scheduler_header %}{% endblock %}
 
 {% import "macros.j2" as macros with context %}
 
 {% if install_type == 'binary' %}
-    {% if base_distro in ['debian', 'ubuntu'] %}
+    {% if base_package_type == 'deb' %}
 
         {% set manila_scheduler_packages = [
                 'manila-scheduler'

@@ -1,11 +1,17 @@
 FROM {{ namespace }}/{{ image_prefix }}base:{{ tag }}
+{% block labels %}
 LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
 
 {% block grafana_header %}{% endblock %}
 
 {% import "macros.j2" as macros with context %}
 
-{% if base_arch != 'x86_64' %}
+{{ macros.enable_extra_repos(['grafana']) }}
+
+{% set grafana_packages = ['grafana'] %}
+
+{% if base_arch not in ['aarch64', 'x86_64'] %}
 
 RUN echo 'There are no Grafana external repositories for {{ base_arch }}' \
     && /bin/false
@@ -14,7 +20,6 @@ RUN echo 'There are no Grafana external repositories for {{ base_arch }}' \
 
 {{ macros.configure_user(name='grafana', homedir='/usr/share/grafana') }}
 
-{% set grafana_packages = ['grafana'] %}
 {{ macros.install_packages(grafana_packages | customizable("packages")) }}
 
 WORKDIR /usr/share/grafana
@@ -22,9 +27,14 @@ WORKDIR /usr/share/grafana
 COPY grafana_sudoers /etc/sudoers.d/kolla_grafana_sudoers
 COPY extend_start.sh /usr/local/bin/kolla_extend_start
 
-RUN grafana-cli plugins install sileht-gnocchi-datasource \
-    && grafana-cli plugins install grafana-influxdb-08-datasource \
-    && chmod 750 /etc/sudoers.d \
+{% block grafana_plugins_install %}
+
+RUN grafana-cli plugins install gnocchixyz-gnocchi-datasource \
+    && grafana-cli plugins install grafana-influxdb-08-datasource
+
+{% endblock %}
+
+RUN chmod 750 /etc/sudoers.d \
     && chmod 440 /etc/sudoers.d/kolla_grafana_sudoers \
     && chmod 755 /usr/local/bin/kolla_extend_start
 

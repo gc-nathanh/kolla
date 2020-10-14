@@ -1,5 +1,7 @@
 FROM {{ namespace }}/{{ image_prefix }}openstack-base:{{ tag }}
+{% block labels %}
 LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
 
 {% block novajoin_base_header %}{% endblock %}
 
@@ -8,12 +10,10 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 {{ macros.configure_user(name='novajoin') }}
 
 {% if install_type == 'binary' %}
-    {% if base_distro in ['centos', 'oraclelinux', 'rhel'] %}
-
+    {% if base_package_type == 'rpm' %}
         {% set novajoin_base_packages = [
-            'python-novajoin'
+            'python3-novajoin'
         ] %}
-
     {% else %}
 RUN echo '{{ install_type }} not yet available for {{ base_distro }}' \
     && /bin/false
@@ -22,7 +22,7 @@ RUN echo '{{ install_type }} not yet available for {{ base_distro }}' \
 {{ macros.install_packages(novajoin_base_packages | customizable("packages")) }}
 
 {% elif install_type == 'source' %}
-    {% if base_distro in ['centos', 'oraclelinux', 'rhel'] %}
+    {% if base_package_type == 'rpm' %}
         {% set novajoin_base_packages = [
             'ipa-admintools',
         ] %}

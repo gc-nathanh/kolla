@@ -1,5 +1,7 @@
 FROM {{ namespace }}/{{ image_prefix }}openstack-base:{{ tag }}
+{% block labels %}
 LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
 
 {% block swift_base_header %}{% endblock %}
 
@@ -8,24 +10,32 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 {{ macros.configure_user(name='swift') }}
 
 {% if install_type == 'binary' %}
-    {% if base_distro in ['centos', 'oraclelinux', 'rhel'] %}
+    {% if base_package_type == 'rpm' %}
         {% set swift_base_packages = [
-                'openstack-swift'
-            ]
-        %}
-    {% elif base_distro in ['debian', 'ubuntu'] %}
+            'nmap-ncat',
+            'openstack-swift',
+        ] %}
+    {% elif base_package_type == 'deb' %}
         {% set swift_base_packages = [
-                'swift'
-             ]
-        %}
+            'netcat-openbsd',
+            'rsync',
+            'swift',
+        ] %}
     {% endif %}
 
 {{ macros.install_packages(swift_base_packages | customizable("packages")) }}
 {% elif install_type == 'source' %}
-    {% if base_distro in ['centos', 'oraclelinux', 'rhel'] %}
-        {% set swift_base_packages = ['liberasurecode-devel'] %}
-    {% elif base_distro in ['debian', 'ubuntu'] %}
-        {% set swift_base_packages = ['liberasurecode-dev'] %}
+    {% if base_package_type == 'rpm' %}
+        {% set swift_base_packages = [
+            'liberasurecode-devel',
+            'nmap-ncat',
+        ] %}
+    {% elif base_package_type == 'deb' %}
+        {% set swift_base_packages = [
+            'liberasurecode-dev',
+            'netcat-openbsd',
+            'rsync',
+        ] %}
     {% endif %}
 
 {{ macros.install_packages(swift_base_packages | customizable("packages")) }}
@@ -46,7 +56,6 @@ RUN ln -s swift-base-source/* swift \
 COPY swift-rootwrap /var/lib/kolla/venv/bin/swift-rootwrap
 COPY rootwrap.conf /etc/swift/rootwrap.conf
 COPY swift_sudoers /etc/sudoers.d/kolla_swift_sudoers
-COPY build-swift-ring.py /usr/local/bin/kolla_build_swift_ring
 
 RUN chmod 755 /var/lib/kolla/venv/bin/swift-rootwrap \
     && chmod 644 /etc/swift/rootwrap.conf \

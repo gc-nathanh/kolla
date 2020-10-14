@@ -1,5 +1,7 @@
 FROM {{ namespace }}/{{ image_prefix }}openstack-base:{{ tag }}
+{% block labels %}
 LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
 
 {% block blazar_base_header %}{% endblock %}
 
@@ -24,7 +26,6 @@ RUN ln -s blazar-base-source/* blazar \
     && {{ macros.install_pip(blazar_base_pip_packages | customizable("pip_packages")) }} \
     && mkdir -p /etc/blazar \
     && cp -r /blazar/etc/blazar/* /etc/blazar \
-    && cp /blazar/etc/policy.json /etc/blazar \
     && chown -R blazar: /etc/blazar
 
 {% endif %}

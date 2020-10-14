@@ -1,5 +1,7 @@
 FROM {{ namespace }}/{{ image_prefix }}openstack-base:{{ tag }}
+{% block labels %}
 LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
 
 {% block ceilometer_base_header %}{% endblock %}
 
@@ -8,20 +10,20 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 {{ macros.configure_user(name='ceilometer') }}
 
 {% if install_type == 'binary' %}
-    {% if base_distro in ['centos', 'oraclelinux', 'rhel'] %}
+    {% if base_package_type == 'rpm' %}
         {% set ceilometer_base_packages = [
             'openstack-ceilometer-common',
-            'python-panko',
-            'python-gnocchiclient',
-            'python-oslo-db',
-            'python-tooz'
+            'python3-gnocchiclient',
+            'python3-oslo-db',
+            'python3-panko',
+            'python3-tooz'
          ] %}
-    {% elif base_distro in ['debian', 'ubuntu'] %}
+    {% elif base_package_type == 'deb' %}
         {% set ceilometer_base_packages = [
             'ceilometer-common',
-            'python-gnocchiclient',
-            'python-panko',
-            'python-pymongo'
+            'python3-gnocchiclient',
+            'python3-panko',
+            'python3-pymongo'
          ] %}
     {% endif %}
 
@@ -39,7 +41,9 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 
 ADD ceilometer-base-archive /ceilometer-base-source
 ADD plugins-archive /
+# NOTE(egonzalez): Remove ceilometer from constraint or will fail.
 RUN ln -s ceilometer-base-source/* ceilometer \
+    && sed -i 's|^ceilometer===.*$||g' requirements/upper-constraints.txt \
     && {{ macros.install_pip(ceilometer_base_pip_packages | customizable("pip_packages")) }} \
     && mkdir -p /etc/ceilometer \
     && cp -r /ceilometer/etc/ceilometer/* /etc/ceilometer/ \

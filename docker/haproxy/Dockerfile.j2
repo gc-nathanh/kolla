@@ -1,5 +1,7 @@
 FROM {{ namespace }}/{{ image_prefix }}base:{{ tag }}
+{% block labels %}
 LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
 
 {% block haproxy_header %}{% endblock %}
 
@@ -7,13 +9,8 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 
 {{ macros.configure_user(name='haproxy') }}
 
-{% if base_distro in ['debian', 'ubuntu'] %}
-{{ macros.debian_haproxy_existing_user_fix() }}
-{% endif %}
-
 {% set haproxy_packages = [
-    'haproxy',
-    'socat'
+    'haproxy'
 ] %}
 {{ macros.install_packages(haproxy_packages | customizable("packages")) }}
 

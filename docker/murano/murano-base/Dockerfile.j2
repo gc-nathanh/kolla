@@ -1,5 +1,7 @@
 FROM {{ namespace }}/{{ image_prefix }}openstack-base:{{ tag }}
+{% block labels %}
 LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
 
 {% block murano_base_header %}{% endblock %}
 
@@ -9,9 +11,9 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 
 {% if install_type == 'binary' %}
 
-    {% if base_distro in ['centos', 'oraclelinux', 'rhel'] %}
+    {% if base_package_type == 'rpm' %}
         {% set murano_base_packages = ['openstack-murano-common'] %}
-    {% elif base_distro in ['debian', 'ubuntu'] %}
+    {% elif base_package_type == 'deb' %}
         {% set murano_base_packages = ['murano-common'] %}
     {% endif %}
 
@@ -31,7 +33,9 @@ RUN ln -s murano-base-source/* murano \
     && cp -r /murano/etc/murano/* /etc/murano/ \
     && chown -R murano: /etc/murano \
     && cd murano/meta/io.murano \
-    && zip -r /io.murano.zip *
+    && zip -r /io.murano.zip * \
+    && cd /murano/meta/io.murano.applications \
+    && zip -r /io.murano.applications.zip *
 
 {% endif %}
 

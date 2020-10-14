@@ -1,5 +1,7 @@
 FROM {{ namespace }}/{{ image_prefix }}base:{{ tag }}
+{% block labels %}
 LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
 
 {% block nova_libvirt_header %}{% endblock %}
 
@@ -7,45 +9,45 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 
 {{ macros.configure_user(name='nova', groups='qemu') }}
 
-{% if base_distro in ['centos', 'oraclelinux', 'rhel'] %}
+{{ macros.enable_extra_repos(['ceph', 'libvirt']) }}
+
+{% if base_package_type == 'rpm' %}
 
     {% set nova_libvirt_packages = [
         'ceph-common',
+        'cyrus-sasl-scram',
         'libguestfs',
+        'libvirt-client',
         'libvirt-daemon',
         'libvirt-daemon-config-nwfilter',
-        'libvirt-daemon-driver-lxc',
         'libvirt-daemon-driver-nwfilter',
         'openvswitch',
-        'qemu-kvm'
+        'qemu-kvm',
+        'trousers'
     ] %}
-
-{% elif base_distro in ['ubuntu'] %}
-
-    {% set nova_libvirt_packages = [
-        'ceph-common',
-        'ebtables',
-        'libvirt-bin',
-        'openvswitch-switch',
-        'pm-utils',
-        'qemu',
-        'qemu-block-extra'
-    ] %}
-
-    {% if base_arch != "ppc64le" %}
-        {% set nova_libvirt_packages = nova_libvirt_packages + [
-            'dmidecode',
-            'xen-utils-4.6'
-        ] %}
+    {% if base_arch == 'x86_64' %}
+        {% if base_distro_tag.startswith('7') %}
+            {% set nova_libvirt_packages = nova_libvirt_packages + [
+                'OVMF'
+            ] %}
+        {% else %}
+            {% set nova_libvirt_packages = nova_libvirt_packages + [
+                'edk2-ovmf'
+            ] %}
+        {% endif %}
+    {% elif base_arch == 'aarch64' %}
+        {% if base_distro_tag.startswith('7') %}
+            {% set nova_libvirt_packages = nova_libvirt_packages + [
+                'AAVMF'
+            ] %}
+        {% else %}
+            {% set nova_libvirt_packages = nova_libvirt_packages + [
+                'edk2-aarch64'
+            ] %}
+        {% endif %}
     {% endif %}
 
-    {% if base_arch == "aarch64" %}
-        {% set nova_libvirt_packages = nova_libvirt_packages + [
-            'qemu-efi'
-        ] %}
-    {% endif %}
-
-{% elif base_distro in ['debian'] %}
+{% elif base_package_type == 'deb' %}
 
     {% set nova_libvirt_packages = [
         'ceph-common',
@@ -54,29 +56,42 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
         'libvirt-daemon-system',
         'openvswitch-switch',
         'pm-utils',
-        'qemu',
+        'python3-cephfs',
+        'python3-rados',
+        'python3-rbd',
         'qemu-block-extra',
-        'usermode'
+        'qemu-system',
+        'trousers'
     ] %}
-
-    {% if base_arch != "ppc64le" %}
-        {% set nova_libvirt_packages = nova_libvirt_packages + [
-            'dmidecode',
-            'xen-utils-4.8'
-        ] %}
-    {% endif %}
 
     {% if base_arch == "aarch64" %}
         {% set nova_libvirt_packages = nova_libvirt_packages + [
-            'qemu-efi'
+            'qemu-efi-aarch64'
+        ] %}
+    {% elif base_arch == "x86_64" %}
+        {% set nova_libvirt_packages = nova_libvirt_packages + [
+            'ovmf',
+            'qemu-kvm'
         ] %}
     {% endif %}
 
+    {% if base_arch in ['aarch64', 'x86_64'] %}
+        {% set nova_libvirt_packages = nova_libvirt_packages + [
+            'dmidecode',
+            'xen-utils'
+        ] %}
+    {% endif %}
+
+    {% if base_distro in ['debian'] %}
+        {% set nova_libvirt_packages = nova_libvirt_packages + [
+            'usermode'
+        ] %}
+    {% endif %}
 {% endif %}
 
 {{ macros.install_packages(nova_libvirt_packages | customizable("packages")) }}
 
-{% if base_distro in ['debian', 'ubuntu'] %}
+{% if base_package_type == 'deb' %}
 
 RUN rm -f /etc/libvirt/qemu/networks/default.xml /etc/libvirt/qemu/networks/autostart/default.xml
 

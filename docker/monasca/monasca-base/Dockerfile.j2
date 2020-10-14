@@ -1,5 +1,7 @@
 FROM {{ namespace }}/{{ image_prefix }}openstack-base:{{ tag }}
+{% block labels %}
 LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
 
 {% block monasca_base_header %}{% endblock %}
 
@@ -14,8 +16,39 @@ RUN echo '{{ install_type }} not yet available for {{ base_distro }}' \
 
 {% elif install_type == 'source' %}
 
-RUN mkdir -p /etc/monasca \
+    {% if base_package_type == 'rpm' %}
+        {% set monasca_base_packages = [
+            'httpd',
+            'mod_ssl',
+            'python3-mod_wsgi',
+        ] %}
+
+{{ macros.install_packages(monasca_base_packages | customizable("packages")) }}
+RUN sed -i -r 's,^(Listen 80),#\1,' /etc/httpd/conf/httpd.conf \
+    && sed -i -r 's,^(Listen 443),#\1,' /etc/httpd/conf.d/ssl.conf
+    {% elif base_package_type == 'deb' %}
+
+        {% set monasca_base_packages = [
+            'apache2',
+            'libapache2-mod-wsgi-py3',
+            'librdkafka-dev'
+        ] %}
+
+{{ macros.install_packages(monasca_base_packages | customizable("packages")) }}
+RUN truncate -s 0 /etc/apache2/ports.conf
+
+    {% endif %}
+
+{% block monasca_source_install %}
+
+{% set monasca_base_pip_packages = [
+    'monasca-common',
+] %}
+
+RUN {{ macros.install_pip(monasca_base_pip_packages | customizable("pip_packages")) }} \
+    && mkdir -p /etc/monasca \
     && chown -R monasca: /etc/monasca
+{% endblock %}
 
 {% endif %}
 

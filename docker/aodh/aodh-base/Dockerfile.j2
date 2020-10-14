@@ -1,5 +1,7 @@
 FROM {{ namespace }}/{{ image_prefix }}openstack-base:{{ tag }}
+{% block labels %}
 LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
 
 {% block aodh_base_header %}{% endblock %}
 
@@ -8,56 +10,59 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 {{ macros.configure_user(name='aodh') }}
 
 {% if install_type == 'binary' %}
-    {% if base_distro in ['centos', 'oraclelinux', 'rhel'] %}
+    {% if base_package_type == 'rpm' %}
 
+       {# NOTE(aschultz): added api because the common package doesn't include the wsgi file. I think this needs fixing #}
        {% set aodh_base_packages = [
             'httpd',
             'mod_ssl',
-            'mod_wsgi',
+            'openstack-aodh-api',
             'openstack-aodh-common',
-            'python-ldappool'
+            'python3-ldappool',
+            'python3-mod_wsgi'
         ] %}
 
 {{ macros.install_packages(aodh_base_packages | customizable("packages")) }}
 RUN mkdir -p /var/www/cgi-bin/aodh \
-    && cp -a /usr/lib/python2.7/site-packages/aodh/api/app.wsgi /var/www/cgi-bin/aodh/ \
+    && cp -a /usr/bin/aodh-api /var/www/cgi-bin/aodh/ \
     && sed -i -r 's,^(Listen 80),#\1,' /etc/httpd/conf/httpd.conf \
     && sed -i -r 's,^(Listen 443),#\1,' /etc/httpd/conf.d/ssl.conf
-    {% elif base_distro in ['debian', 'ubuntu'] %}
+    {% elif base_package_type == 'deb' %}
 
        {% set aodh_base_packages = [
             'aodh-common',
             'apache2',
-            'libapache2-mod-wsgi',
-            'python-ldappool'
+            'libapache2-mod-wsgi-py3',
+            'python3-aodh',
+            'python3-ldappool'
         ] %}
 
 {{ macros.install_packages(aodh_base_packages | customizable("packages")) }}
 RUN mkdir -p /var/www/cgi-bin/aodh \
-    && cp -a /usr/lib/python2.7/dist-packages/aodh/api/app.wsgi /var/www/cgi-bin/aodh/ \
+    && cp -a /usr/lib/python3/dist-packages/aodh/api/app.wsgi /var/www/cgi-bin/aodh/ \
     && echo > /etc/apache2/ports.conf
     {% endif %}
 
 {% elif install_type == 'source' %}
-    {% if base_distro in ['centos', 'oraclelinux', 'rhel'] %}
+    {% if base_package_type == 'rpm' %}
 
        {% set aodh_base_packages = [
             'httpd',
-            'mod_wsgi',
             'mod_ssl',
-            'python-ldappool'
+            'python3-ldappool',
+            'python3-mod_wsgi'
         ] %}
 
 {{ macros.install_packages(aodh_base_packages | customizable("packages")) }}
 RUN mkdir -p /var/www/cgi-bin/aodh \
     && sed -i -r 's,^(Listen 80),#\1,' /etc/httpd/conf/httpd.conf \
     && sed -i -r 's,^(Listen 443),#\1,' /etc/httpd/conf.d/ssl.conf
-    {% elif base_distro in ['debian', 'ubuntu'] %}
+    {% elif base_package_type == 'deb' %}
 
        {% set aodh_base_packages = [
             'apache2',
-            'libapache2-mod-wsgi',
-            'python-ldappool'
+            'libapache2-mod-wsgi-py3',
+            'python3-ldappool'
         ] %}
 
 {{ macros.install_packages(aodh_base_packages | customizable("packages")) }}

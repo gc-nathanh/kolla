@@ -1,5 +1,7 @@
 FROM {{ namespace }}/{{ image_prefix }}monasca-base:{{ tag }}
+{% block labels %}
 LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
 
 {% block monasca_persister_header %}{% endblock %}
 
@@ -15,7 +17,10 @@ RUN echo '{{ install_type }} not yet available for {{ base_distro }}' \
 ADD monasca-persister-archive /monasca-persister-source
 
 {% set monasca_persister_pip_packages = [
-    '/monasca-persister'
+    '/monasca-persister',
+    'influxdb',
+    'elasticsearch',
+    'cassandra-driver'
 ] %}
 
 RUN ln -s monasca-persister-source/* monasca-persister \

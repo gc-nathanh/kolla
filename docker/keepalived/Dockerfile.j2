@@ -1,20 +1,20 @@
 FROM {{ namespace }}/{{ image_prefix }}base:{{ tag }}
+{% block labels %}
 LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
 
 {% block keepalived_header %}{% endblock %}
 
 {% import "macros.j2" as macros with context %}
 
-{% if base_distro in ['centos', 'oraclelinux', 'rhel'] %}
+{% if base_package_type == 'rpm' %}
     {% set keepalived_packages = [
         'hostname',
-        'keepalived',
-        'socat'
+        'keepalived'
     ] %}
-{% elif base_distro in ['debian', 'ubuntu'] %}
+{% elif base_package_type == 'deb' %}
     {% set keepalived_packages = [
-        'keepalived',
-        'socat'
+        'keepalived'
     ] %}
 {% endif %}
 {{ macros.install_packages(keepalived_packages | customizable("packages")) }}

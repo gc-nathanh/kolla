@@ -27,13 +27,16 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 {% elif install_type == 'source' %}
 
 ADD rally-archive /rally-source
+ADD rally-openstack-archive /rally-openstack-source
 
 {% set rally_pip_packages = [
     '/rally',
-    'os-testr'
+    'os-testr',
+    '/rally-openstack'
 ] %}
 
 RUN ln -s rally-source/* rally \
+    ln -s rally-openstack-source/* rally-openstack \
     && {{ macros.install_pip(rally_pip_packages | customizable("pip_packages")) }} \
     && mkdir -p /etc/rally \
     && chown -R rally: /etc/rally

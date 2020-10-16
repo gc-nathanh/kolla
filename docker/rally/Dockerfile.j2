@@ -42,6 +42,7 @@ RUN ln -s rally-source/* rally \
     && {{ macros.install_pip(rally_pip_packages | customizable("pip_packages")) }} \
     && mkdir -p /etc/rally \
     && chown -R rally: /etc/rally \
+    && pip install -U virtualenv \
     && if [ "$(ls /plugins)" ]; then \
         {{ macros.install_pip(rally_plugins_pip_packages) }}; \
     fi

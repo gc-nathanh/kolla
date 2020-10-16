@@ -31,16 +31,13 @@ RUN ls -la / \
     && ls -la .
 
 ADD rally-archive /rally-source
-ADD rally-openstack-archive /rally-openstack-source
 
 {% set rally_pip_packages = [
     '/rally',
-    'os-testr',
-    '/rally-openstack'
+    'os-testr'
 ] %}
 
 RUN ln -s rally-source/* rally \
-    ln -s rally-openstack-source/* rally-openstack \
     && {{ macros.install_pip(rally_pip_packages | customizable("pip_packages")) }} \
     && mkdir -p /etc/rally \
     && chown -R rally: /etc/rally

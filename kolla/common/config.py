@@ -748,7 +748,7 @@ SOURCES = {
         'type': 'url',
         'location': ('$tarballs_base/openstack/rally/'
                      'rally-3.1.0.tar.gz')},
-    'rally-openstack': {
+    'rally-plugin-openstack': {
         'type': 'url',
         'location': ('$tarballs_base/openstack/rally-openstack/'
                      'rally-openstack-2.0.0.tar.gz')},

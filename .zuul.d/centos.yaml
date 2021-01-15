@@ -15,6 +15,25 @@
               - ^requirements.txt$
               - ^setup.cfg$
               - ^setup.py$
+    check-arm64:
+      jobs:
+        - kolla-build-centos8-source-aarch64
+    gate:
+      queue: kolla
+      jobs:
+        - kolla-build-centos8-source
+        - kolla-ansible-centos8-source
+        - kolla-ansible-centos8-source-upgrade
+    periodic-weekly:
+      jobs:
+        - kolla-publish-centos8-source
+        - kolla-publish-centos8-binary
+    release:
+      jobs:
+        - kolla-publish-centos8-source
+        - kolla-publish-centos8-binary
+    experimental:
+      jobs:
         - kolla-ansible-centos8-source-bifrost:
             files: ^docker\/(base|bifrost|openstack-base)\/.*
         # Test rabbitmq & mariadb changes in multinode ceph jobs.
@@ -30,23 +49,6 @@
             files: ^docker\/(base|dnsmasq|ironic|ironic-inspector|iscsid|openstack-base)\/.*
         - kolla-ansible-centos8-source-swift:
             files: ^docker/(base|openstack-base|glance|swift)/
-    check-arm64:
-      jobs:
-        - kolla-build-centos8-source-aarch64
-    gate:
-      queue: kolla
-      jobs:
-        - kolla-build-centos8-source
-        - kolla-ansible-centos8-source
-        - kolla-ansible-centos8-source-upgrade
-    periodic:
-      jobs:
-        - kolla-publish-centos8-source
-        - kolla-publish-centos8-binary
-    release:
-      jobs:
-        - kolla-publish-centos8-source
-        - kolla-publish-centos8-binary
 
 - job:
     name: kolla-build-centos8-binary

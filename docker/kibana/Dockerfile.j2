@@ -22,7 +22,7 @@ RUN dpkg --add-architecture amd64 && \
 
 {% else %}
 
-{% set kibana_packages = ['kibana-oss'] %}
+{% set kibana_packages = ['opendistroforelasticsearch-kibana'] %}
 
 {{ macros.install_packages(kibana_packages | customizable("packages")) }}
 

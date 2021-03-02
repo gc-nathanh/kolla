@@ -14,7 +14,7 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 {% if base_package_type == 'rpm' %}
     {% set elasticsearch_packages = [
         'java-11-openjdk-headless',
-        'elasticsearch-oss',
+        'opendistroforelasticsearch-1.13.0',
     ] %}
 
 ENV JAVA_HOME /usr/lib/jvm/jre-11-openjdk/

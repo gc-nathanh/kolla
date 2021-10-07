@@ -406,7 +406,8 @@ ADD openstack-base-archive /openstack-base-source
 RUN ln -s openstack-base-source/* /requirements \
     && mkdir -p /var/lib/kolla \
     && {{ macros.install_pip(['virtualenv'])}} \
-    && virtualenv --system-site-packages /var/lib/kolla/venv
+    && virtualenv --system-site-packages --no-setuptools /var/lib/kolla/venv \
+    && /var/lib/kolla/venv/bin/pip install 'setuptools<58.0.0'
 
 ENV PATH /var/lib/kolla/venv/bin:$PATH
 

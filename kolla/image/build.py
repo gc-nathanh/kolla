@@ -1244,6 +1244,17 @@ class KollaWorker(object):
                     'name': name,
                 })
 
+        if self.conf.format == 'json':
+
+            def json_summary(f):
+                json.dump(results, f, indent=4)
+
+            if self.conf.summary_json_file:
+                with open(self.conf.summary_json_file, "w") as f:
+                    json_summary(f)
+            else:
+                json_summary(sys.stdout)
+
         return results
 
     def get_image_statuses(self):
@@ -1532,8 +1543,6 @@ def run_build():
             raise
 
     if conf.summary:
-        results = kolla.summary()
-        if conf.format == 'json':
-            print(json.dumps(results))
+        kolla.summary()
     kolla.cleanup()
     return kolla.get_image_statuses()

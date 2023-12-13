@@ -24,7 +24,7 @@ RUN curl -o /tmp/cadvisor ${prometheus_cadvisor_url} \
 
 {% elif base_arch in ['aarch64'] %}
 
-{% block prometheus_cadvisor_repository_version %}
+{% block prometheus_cadvisor_repository_version_aarch64 %}
 ARG prometheus_cadvisor_version=0.45.0
 ARG prometheus_cadvisor_sha256sum=bd6dad982c5950d6071ec2e1f9d474102ef3a00451395c58da9398297d35b174
 ARG prometheus_cadvisor_url=https://github.com/google/cadvisor/releases/download/v${prometheus_cadvisor_version}/cadvisor-v{prometheus_cadvisor_version}-linux-arm64

@@ -31,7 +31,7 @@ ARG prometheus_cadvisor_url=https://github.com/google/cadvisor/releases/download
 
 {% endblock %}
 
-{% block prometheus_cadvisor_install %}
+{% block prometheus_cadvisor_install_aarch64 %}
 RUN curl -o /tmp/cadvisor ${prometheus_cadvisor_url} \
     && echo "${prometheus_cadvisor_sha256sum} /tmp/cadvisor" | sha256sum -c \
     && mv /tmp/cadvisor /opt \

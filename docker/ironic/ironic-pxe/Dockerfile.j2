@@ -20,7 +20,7 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
     {% if base_arch in ['x86_64'] %}
         {% set ironic_pxe_packages = ironic_pxe_packages + [
             'syslinux-tftpboot',
-            'ironic-multiarch'
+            'ipxe-bootimgs-aarch64'
         ] %}
     {% endif %}
 

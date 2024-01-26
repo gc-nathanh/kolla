@@ -63,7 +63,7 @@ function prepare_ipxe {
         if [[ "${KOLLA_BASE_ARCH}" == "x86_64" ]]; then
             cp -r /usr/share/ipxe/arm64-efi ${TFTPBOOT_PATH}/
             if [[ ! -e ${TFTPBOOT_PATH}/ipxe-a64.efi ]]; then
-                ln -s ${TFTPBOOT_PATH}/arm64-efi/snponly-a64.efi ${TFTPBOOT_PATH}/ipxe-a64.efi
+                ln -s ${TFTPBOOT_PATH}/arm64-efi/snponly.efi ${TFTPBOOT_PATH}/ipxe-a64.efi
             fi
         fi
     fi

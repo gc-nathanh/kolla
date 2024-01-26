@@ -59,6 +59,13 @@ function prepare_ipxe {
         if [[ ! -e ${TFTPBOOT_PATH}/snponly.efi ]]; then
             ln -s ${TFTPBOOT_PATH}/ipxe-snponly-${KOLLA_BASE_ARCH}.efi ${TFTPBOOT_PATH}/snponly.efi
         fi
+        # NOTE(nathharp) also put the aarch64 files in place on x86_64
+        if [[ "${KOLLA_BASE_ARCH}" == "x86_64" ]]; then
+            cp -r /usr/share/ipxe/arm64-efi ${TFTPBOOT_PATH}/
+            if [[ ! -e ${TFTPBOOT_PATH}/snponly-a64.efi ]]; then
+                ln -s ${TFTPBOOT_PATH}/arm64-efi/snponly-a64.efi ${TFTPBOOT_PATH}/ipxe-a64.efi
+            fi
+        fi
     fi
 }
 
